@@ -227,8 +227,10 @@ static void qcom_smp2p_negotiate(struct qcom_smp2p *smp2p)
 	if (in->version == out->version) {
 		out->features &= in->features;
 
-		if (out->features & SMP2P_FEATURE_SSR_ACK)
+		if (out->features & SMP2P_FEATURE_SSR_ACK) {
 			smp2p->ssr_ack_enabled = true;
+			smp2p->ssr_ack = !!(out->flags & BIT(SMP2P_FLAGS_RESTART_ACK_BIT));
+		}
 
 		smp2p->negotiation_done = true;
 		trace_smp2p_negotiate(smp2p->dev, out->features);
@@ -515,16 +517,21 @@ static int qcom_smp2p_outbound_entry(struct qcom_smp2p *smp2p,
 				     struct device_node *node)
 {
 	struct smp2p_smem_item *out = smp2p->out;
-	char buf[SMP2P_MAX_ENTRY_NAME] = {};
+	int index;
 
-	/* Allocate an entry from the smem item */
-	strscpy(buf, entry->name, SMP2P_MAX_ENTRY_NAME);
-	memcpy(out->entries[out->valid_entries].name, buf, SMP2P_MAX_ENTRY_NAME);
+	for (index = 0; index < out->valid_entries; index++)
+		if (!strncmp(out->entries[index].name, entry->name, SMP2P_MAX_ENTRY_NAME))
+			break;
 
-	/* Make the logical entry reference the physical value */
-	entry->value = (u32 __iomem *)&out->entries[out->valid_entries].value;
+	if (index == out->valid_entries) {
+		if (index >= out->total_entries || index >= SMP2P_MAX_ENTRY)
+			return -ENOMEM;
 
-	out->valid_entries++;
+		strscpy(out->entries[index].name, entry->name, SMP2P_MAX_ENTRY_NAME);
+		out->valid_entries++;
+	}
+
+	entry->value = (u32 __iomem *)&out->entries[index].value;
 
 	entry->state = qcom_smem_state_register(node, &smp2p_state_ops, entry);
 	if (IS_ERR(entry->state)) {
@@ -540,6 +547,7 @@ static int qcom_smp2p_alloc_outbound_item(struct qcom_smp2p *smp2p)
 	struct smp2p_smem_item *out;
 	unsigned smem_id = smp2p->smem_items[SMP2P_OUTBOUND];
 	unsigned pid = smp2p->remote_pid;
+	size_t size;
 	u8 in_version;
 	int ret;
 
@@ -548,10 +556,23 @@ static int qcom_smp2p_alloc_outbound_item(struct qcom_smp2p *smp2p)
 		return dev_err_probe(smp2p->dev, ret,
 				     "unable to allocate local smp2p item\n");
 
-	out = qcom_smem_get(pid, smem_id, NULL);
+	out = qcom_smem_get(pid, smem_id, &size);
 	if (IS_ERR(out)) {
 		dev_err(smp2p->dev, "Unable to acquire local smp2p item\n");
 		return PTR_ERR(out);
+	}
+
+	if (size < sizeof(*out))
+		return -EINVAL;
+
+	if (ret == -EEXIST && out->magic == SMP2P_MAGIC &&
+	    out->version && out->version <= MAX_VERSION &&
+	    out->local_pid == smp2p->local_pid &&
+	    out->remote_pid == smp2p->remote_pid &&
+	    out->total_entries == SMP2P_MAX_ENTRY &&
+	    out->valid_entries <= out->total_entries) {
+		smp2p->out = out;
+		return 0;
 	}
 
 	memset(out, 0, sizeof(*out));
@@ -577,8 +598,6 @@ static int qcom_smp2p_alloc_outbound_item(struct qcom_smp2p *smp2p)
 		out->version = in_version;
 	else
 		out->version = 2;
-
-	qcom_smp2p_kick(smp2p);
 
 	smp2p->out = out;
 
@@ -707,15 +726,14 @@ static int qcom_smp2p_probe(struct platform_device *pdev)
 	/* Check inbound entries in the case of early boot processor */
 	qcom_smp2p_start_in(smp2p);
 
-	/* Kick the outgoing edge after allocating entries */
-	qcom_smp2p_kick(smp2p);
-
 	ret = devm_request_threaded_irq(&pdev->dev, irq,
 					NULL, qcom_smp2p_intr,
 					IRQF_ONESHOT,
 					NULL, (void *)smp2p);
 	if (ret)
 		goto unwind_interfaces;
+
+	qcom_smp2p_kick(smp2p);
 
 	/*
 	 * Treat smp2p interrupt as wakeup source, but keep it disabled
