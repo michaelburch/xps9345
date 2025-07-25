@@ -79,7 +79,7 @@ struct smp2p_smem_item {
 	u32 flags;
 
 	struct {
-		u8 name[SMP2P_MAX_ENTRY_NAME];
+		char name[SMP2P_MAX_ENTRY_NAME];
 		u32 value;
 	} entries[SMP2P_MAX_ENTRY];
 } __packed;
@@ -259,7 +259,6 @@ static void qcom_smp2p_start_in(struct qcom_smp2p *smp2p)
 {
 	unsigned int smem_id = smp2p->smem_items[SMP2P_INBOUND];
 	unsigned int pid = smp2p->remote_pid;
-	char buf[SMP2P_MAX_ENTRY_NAME];
 	struct smp2p_smem_item *in;
 	struct smp2p_entry *entry;
 	size_t size;
@@ -277,8 +276,7 @@ static void qcom_smp2p_start_in(struct qcom_smp2p *smp2p)
 
 	for (i = smp2p->valid_entries; i < in->valid_entries; i++) {
 		list_for_each_entry(entry, &smp2p->inbound, node) {
-			memcpy(buf, in->entries[i].name, sizeof(buf));
-			if (!strncmp(buf, entry->name, SMP2P_MAX_ENTRY_NAME)) {
+			if (!strncmp(in->entries[i].name, entry->name, SMP2P_MAX_ENTRY_NAME)) {
 				entry->value = (u32 __iomem *)&in->entries[i].value;
 				entry->last_value = readl(entry->value);
 				break;
@@ -294,7 +292,6 @@ static void qcom_smp2p_notify_in(struct qcom_smp2p *smp2p)
 	struct smp2p_entry *entry;
 	int irq_pin;
 	u32 status;
-	char buf[SMP2P_MAX_ENTRY_NAME];
 	u32 val;
 	int i;
 
@@ -303,8 +300,7 @@ static void qcom_smp2p_notify_in(struct qcom_smp2p *smp2p)
 	/* Match newly created entries */
 	for (i = smp2p->valid_entries; i < in->valid_entries; i++) {
 		list_for_each_entry(entry, &smp2p->inbound, node) {
-			memcpy(buf, in->entries[i].name, sizeof(buf));
-			if (!strncmp(buf, entry->name, SMP2P_MAX_ENTRY_NAME)) {
+			if (!strncmp(in->entries[i].name, entry->name, SMP2P_MAX_ENTRY_NAME)) {
 				entry->value = (u32 __iomem *)&in->entries[i].value;
 				break;
 			}
