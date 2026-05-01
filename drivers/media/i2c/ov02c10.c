@@ -59,6 +59,12 @@
 #define OV02C10_REG_TEST_PATTERN		CCI_REG8(0x4503)
 #define OV02C10_TEST_PATTERN_ENABLE		BIT(7)
 
+/* Native pixel array size */
+#define OV02C10_NATIVE_WIDTH		1936
+#define OV02C10_NATIVE_HEIGHT		1096
+#define OV02C10_ACTIVE_WIDTH		1928
+#define OV02C10_ACTIVE_HEIGHT		1092
+
 struct ov02c10_mode {
 	/* Frame width in pixels */
 	u32 width;
@@ -581,6 +587,16 @@ static void ov02c10_update_pad_format(const struct ov02c10_mode *mode,
 	fmt->field = V4L2_FIELD_NONE;
 }
 
+/* Modes are centred in the native pixel array */
+static void ov02c10_update_crop(const struct ov02c10_mode *mode,
+				struct v4l2_rect *crop)
+{
+	crop->left = (OV02C10_NATIVE_WIDTH - mode->width) / 2;
+	crop->top = (OV02C10_NATIVE_HEIGHT - mode->height) / 2;
+	crop->width = mode->width;
+	crop->height = mode->height;
+}
+
 static int ov02c10_enable_streams(struct v4l2_subdev *sd,
 				  struct v4l2_subdev_state *state,
 				  u32 pad, u64 streams_mask)
@@ -710,6 +726,7 @@ static int ov02c10_set_format(struct v4l2_subdev *sd,
 
 	ov02c10_update_pad_format(mode, &fmt->format);
 	*v4l2_subdev_state_get_format(sd_state, fmt->pad) = fmt->format;
+	ov02c10_update_crop(mode, v4l2_subdev_state_get_crop(sd_state, fmt->pad));
 
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
 		return 0;
@@ -755,11 +772,39 @@ static int ov02c10_enum_frame_size(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static int ov02c10_get_selection(struct v4l2_subdev *sd,
+				 struct v4l2_subdev_state *state,
+				 struct v4l2_subdev_selection *sel)
+{
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP:
+		sel->r = *v4l2_subdev_state_get_crop(state, sel->pad);
+		return 0;
+	case V4L2_SEL_TGT_CROP_DEFAULT:
+		sel->r.left = (OV02C10_NATIVE_WIDTH - OV02C10_ACTIVE_WIDTH) / 2;
+		sel->r.top = (OV02C10_NATIVE_HEIGHT - OV02C10_ACTIVE_HEIGHT) / 2;
+		sel->r.width = OV02C10_ACTIVE_WIDTH;
+		sel->r.height = OV02C10_ACTIVE_HEIGHT;
+		return 0;
+	case V4L2_SEL_TGT_NATIVE_SIZE:
+	case V4L2_SEL_TGT_CROP_BOUNDS:
+		sel->r.left = 0;
+		sel->r.top = 0;
+		sel->r.width = OV02C10_NATIVE_WIDTH;
+		sel->r.height = OV02C10_NATIVE_HEIGHT;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
 static int ov02c10_init_state(struct v4l2_subdev *sd,
 			      struct v4l2_subdev_state *sd_state)
 {
 	ov02c10_update_pad_format(&supported_modes[0],
 				  v4l2_subdev_state_get_format(sd_state, 0));
+	ov02c10_update_crop(&supported_modes[0],
+			    v4l2_subdev_state_get_crop(sd_state, 0));
 
 	return 0;
 }
@@ -771,6 +816,7 @@ static const struct v4l2_subdev_video_ops ov02c10_video_ops = {
 static const struct v4l2_subdev_pad_ops ov02c10_pad_ops = {
 	.set_fmt = ov02c10_set_format,
 	.get_fmt = v4l2_subdev_get_fmt,
+	.get_selection = ov02c10_get_selection,
 	.enum_mbus_code = ov02c10_enum_mbus_code,
 	.enum_frame_size = ov02c10_enum_frame_size,
 	.enable_streams = ov02c10_enable_streams,
