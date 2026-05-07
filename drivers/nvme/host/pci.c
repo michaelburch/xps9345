@@ -2702,6 +2702,24 @@ static int nvme_alloc_host_mem(struct nvme_dev *dev, u64 min, u64 preferred)
 			return 0;
 	}
 
+	if (min && dev->ctrl.hmmaxd &&
+	    (u64)dev->ctrl.hmmaxd * min_chunk < min) {
+		u64 needed = DIV_ROUND_UP_ULL(min, dev->ctrl.hmmaxd);
+		u64 big;
+
+		if (needed > (1ULL << 31))
+			return -ENOMEM;
+		big = min_t(u64, preferred, roundup_pow_of_two(needed));
+
+		if (big >= hmminds &&
+		    !nvme_alloc_host_mem_multi(dev, preferred, big)) {
+			if (dev->host_mem_size >= min)
+				return 0;
+			nvme_free_host_mem(dev);
+		}
+		return -ENOMEM;
+	}
+
 	/* start big and work our way down */
 	for (chunk_size = min_chunk; chunk_size >= hmminds; chunk_size /= 2) {
 		if (!nvme_alloc_host_mem_multi(dev, preferred, chunk_size)) {
