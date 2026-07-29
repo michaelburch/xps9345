@@ -1881,6 +1881,31 @@ static void msm_dp_ctrl_psr_exit(struct msm_dp_ctrl_private *ctrl)
 	msm_dp_write_link(ctrl, REG_PSR_CMD, cmd);
 }
 
+/*
+ * msm_dp_ctrl_config_psr() only runs once the stream is up, and these
+ * registers survive a disable, so a full link bring-up would otherwise
+ * start link training with the previous session's PSR state and SDP
+ * flush mode still set.
+ */
+static void msm_dp_ctrl_clear_psr(struct msm_dp_ctrl_private *ctrl,
+				  struct msm_dp_panel *panel)
+{
+	u32 cfg;
+
+	if (!panel->psr_cap.version)
+		return;
+
+	msm_dp_write_link(ctrl, REG_PSR_CMD, 0);
+
+	cfg = msm_dp_read_link(ctrl, REG_PSR_CONFIG);
+	cfg &= ~PSR1_SUPPORTED;
+	msm_dp_write_link(ctrl, REG_PSR_CONFIG, cfg);
+
+	cfg = msm_dp_read_link(ctrl, REG_DP_MAINLINK_CTRL);
+	cfg &= ~DP_MAINLINK_CTRL_FLUSH_MODE_MASK;
+	msm_dp_write_link(ctrl, REG_DP_MAINLINK_CTRL, cfg);
+}
+
 void msm_dp_ctrl_config_psr(struct msm_dp_ctrl *msm_dp_ctrl,
 			    struct msm_dp_panel *panel)
 {
@@ -1890,6 +1915,15 @@ void msm_dp_ctrl_config_psr(struct msm_dp_ctrl *msm_dp_ctrl,
 
 	if (!panel->psr_cap.version)
 		return;
+
+	/*
+	 * PSR SDPs must be flushed directly. The peripheral flush path can
+	 * complete normally while the sink captures an invalid frame.
+	 */
+	cfg = msm_dp_read_link(ctrl, REG_DP_MAINLINK_CTRL);
+	cfg &= ~DP_MAINLINK_CTRL_FLUSH_MODE_MASK;
+	cfg |= DP_MAINLINK_FLUSH_MODE_UPDATE_SDP;
+	msm_dp_write_link(ctrl, REG_DP_MAINLINK_CTRL, cfg);
 
 	/* enable PSR1 function */
 	cfg = msm_dp_read_link(ctrl, REG_PSR_CONFIG);
@@ -2370,6 +2404,8 @@ int msm_dp_ctrl_on_link(struct msm_dp_ctrl *msm_dp_ctrl,
 	rc = msm_dp_ctrl_enable_mainlink_clocks(ctrl, panel);
 	if (rc)
 		return rc;
+
+	msm_dp_ctrl_clear_psr(ctrl, panel);
 
 	while (--link_train_max_retries) {
 		training_step = DP_TRAINING_NONE;
