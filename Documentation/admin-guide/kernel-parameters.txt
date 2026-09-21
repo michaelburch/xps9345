@@ -1258,6 +1258,17 @@ Kernel parameters
 	dell_smm_hwmon.fan_max=
 			[HW] Maximum configurable fan speed.
 
+	dell_xps_ec.soc_tj=
+			[ARM64] Report the hottest available CPU aggregate
+			thermal-zone reading as the Dell EC SoC temperature.
+			Format: { 0 | 1 }
+			Default: 1 (enabled). Set 0 to disable this locally
+			inferred sensor mapping. If any required zone is
+			unavailable or unreadable, a ratelimited error is
+			logged and the SoC report is skipped for that poll.
+			The next poll retries the complete set; board
+			thermistor reports continue.
+
 	dfltcc=		[HW,S390]
 			Format: { on | off | def_only | inf_only | always }
 			on:       s390 zlib hardware support for compression on
