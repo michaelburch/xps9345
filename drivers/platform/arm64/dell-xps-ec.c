@@ -14,10 +14,12 @@
 #include <linux/iio/consumer.h>
 #include <linux/interrupt.h>
 #include <linux/jiffies.h>
+#include <linux/minmax.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/overflow.h>
 #include <linux/pm.h>
+#include <linux/thermal.h>
 #include <linux/types.h>
 #include <linux/unaligned.h>
 #include <linux/units.h>
@@ -66,6 +68,11 @@
 #define DELL_XPS_EC_IRQ_RETRIES		3
 #define DELL_XPS_EC_IRQ_RETRY_JIFFIES	msecs_to_jiffies(1000)
 
+static bool soc_tj = true;
+module_param(soc_tj, bool, 0444);
+MODULE_PARM_DESC(soc_tj,
+		 "Report the SoC junction temperature to the EC (default: on)");
+
 /*
  * Mapping between IIO channel name (as per schematics) and EC command byte.
  */
@@ -98,7 +105,6 @@ static const u8 dell_xps13_9345_thermistor_profile[] = {
 };
 
 static const struct dell_xps_ec_therm dell_xps13_9345_therms[] = {
-	/* TODO: 0x01 is sent only occasionally, likely TZ98 or TZ4. */
 	{ "sys_therm0", 0x02 },
 	{ "sys_therm1", 0x03 },
 	{ "sys_therm2", 0x04 },
@@ -113,6 +119,22 @@ static const struct dell_xps_ec_data dell_xps13_9345_data = {
 	.num_therms = ARRAY_SIZE(dell_xps13_9345_therms),
 	.profile = dell_xps13_9345_thermistor_profile,
 	.profile_len = sizeof(dell_xps13_9345_thermistor_profile),
+};
+
+/* EC sensor id 0x01, fed from the ACPI "SoC Tj" path rather than a thermistor */
+#define DELL_XPS_EC_SENSOR_SOC_TJ	0x01
+
+/*
+ * tsens zones standing in for SoC Tj. The aggregate CPU subsystem sensors are
+ * the closest Linux equivalent; require the complete set for the maximum.
+ */
+static const char * const dell_xps_ec_soc_zones[] = {
+	"cpuss0-top-thermal",
+	"cpuss0-btm-thermal",
+	"cpuss1-top-thermal",
+	"cpuss1-btm-thermal",
+	"cpuss2-top-thermal",
+	"cpuss2-btm-thermal",
 };
 
 struct dell_xps_ec {
@@ -202,6 +224,28 @@ static int dell_xps_ec_send_temp(struct dell_xps_ec *ec, u8 cmd_byte,
 	return dell_xps_ec_write(ec, buf, sizeof(buf));
 }
 
+static void dell_xps_ec_send_soc_temp(struct dell_xps_ec *ec)
+{
+	int hottest = INT_MIN;
+	unsigned int i;
+	int temp, ret;
+
+	for (i = 0; i < ARRAY_SIZE(dell_xps_ec_soc_zones); i++) {
+		ret = thermal_zone_get_temp_by_name(dell_xps_ec_soc_zones[i], &temp);
+		if (ret) {
+			dev_err_ratelimited(ec->dev, "Failed to read SoC zone %s: %d\n",
+					    dell_xps_ec_soc_zones[i], ret);
+			return;
+		}
+
+		hottest = max(hottest, temp);
+	}
+
+	ret = dell_xps_ec_send_temp(ec, DELL_XPS_EC_SENSOR_SOC_TJ, hottest);
+	if (ret)
+		dev_err_ratelimited(ec->dev, "Failed to send SoC Tj: %d\n", ret);
+}
+
 static void dell_xps_ec_temp_work_fn(struct work_struct *work)
 {
 	struct dell_xps_ec *ec = container_of(work, struct dell_xps_ec,
@@ -226,6 +270,9 @@ static void dell_xps_ec_temp_work_fn(struct work_struct *work)
 					    therms[i].name, ret);
 		}
 	}
+
+	if (soc_tj)
+		dell_xps_ec_send_soc_temp(ec);
 
 	schedule_delayed_work(&ec->temp_work, DELL_XPS_EC_TEMP_POLL_JIFFIES);
 }

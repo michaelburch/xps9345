@@ -1654,25 +1654,15 @@ void thermal_zone_device_unregister(struct thermal_zone_device *tz)
 }
 EXPORT_SYMBOL_GPL(thermal_zone_device_unregister);
 
-/**
- * thermal_zone_get_zone_by_name() - search for a zone and returns its ref
- * @name: thermal zone name to fetch the temperature
- *
- * When only one zone is found with the passed name, returns a reference to it.
- *
- * Return: On success returns a reference to an unique thermal zone with
- * matching name equals to @name, an ERR_PTR otherwise (-EINVAL for invalid
- * paramenters, -ENODEV for not found and -EEXIST for multiple matches).
- */
-struct thermal_zone_device *thermal_zone_get_zone_by_name(const char *name)
+static struct thermal_zone_device *thermal_zone_find_by_name(const char *name)
 {
 	struct thermal_zone_device *pos = NULL, *ref = ERR_PTR(-EINVAL);
 	unsigned int found = 0;
 
+	lockdep_assert_held(&thermal_list_lock);
+
 	if (!name)
 		return ERR_PTR(-EINVAL);
-
-	guard(mutex)(&thermal_list_lock);
 
 	list_for_each_entry(pos, &thermal_tz_list, node)
 		if (!strncasecmp(name, pos->type, THERMAL_NAME_LENGTH)) {
@@ -1689,7 +1679,51 @@ struct thermal_zone_device *thermal_zone_get_zone_by_name(const char *name)
 
 	return ref;
 }
+
+/**
+ * thermal_zone_get_zone_by_name() - search for a zone and returns its ref
+ * @name: thermal zone name to fetch the temperature
+ *
+ * When only one zone is found with the passed name, returns a reference to it.
+ *
+ * Return: On success returns a reference to an unique thermal zone with
+ * matching name equals to @name, an ERR_PTR otherwise (-EINVAL for invalid
+ * paramenters, -ENODEV for not found and -EEXIST for multiple matches).
+ */
+struct thermal_zone_device *thermal_zone_get_zone_by_name(const char *name)
+{
+	guard(mutex)(&thermal_list_lock);
+
+	return thermal_zone_find_by_name(name);
+}
 EXPORT_SYMBOL_GPL(thermal_zone_get_zone_by_name);
+
+/**
+ * thermal_zone_get_temp_by_name() - Read a named zone without retaining a pointer
+ * @name: Thermal zone name
+ * @temp: Temperature in millidegrees Celsius
+ *
+ * Hold the zone-list lock across lookup and the temperature read so that
+ * thermal_zone_exit() cannot remove the zone during the operation.
+ *
+ * Return: Zero on success, or a negative lookup or temperature-read error.
+ */
+int thermal_zone_get_temp_by_name(const char *name, int *temp)
+{
+	struct thermal_zone_device *tz;
+
+	if (!temp)
+		return -EINVAL;
+
+	guard(mutex)(&thermal_list_lock);
+
+	tz = thermal_zone_find_by_name(name);
+	if (IS_ERR(tz))
+		return PTR_ERR(tz);
+
+	return thermal_zone_get_temp(tz, temp);
+}
+EXPORT_SYMBOL_GPL(thermal_zone_get_temp_by_name);
 
 static void thermal_zone_device_resume(struct work_struct *work)
 {
