@@ -40,6 +40,8 @@ struct pmic_glink {
 	struct auxiliary_device altmode_aux;
 	struct auxiliary_device ps_aux;
 	struct auxiliary_device ucsi_aux;
+	struct auxiliary_device shutdown_aux;
+	bool shutdown_registered;
 
 	/* serializing client_state and pdr_state updates */
 	struct mutex state_lock;
@@ -352,6 +354,14 @@ static int pmic_glink_probe(struct platform_device *pdev)
 		}
 	}
 
+	if (IS_ENABLED(CONFIG_QCOM_PMIC_GLINK_SHUTDOWN)) {
+		ret = pmic_glink_add_aux_device(pg, &pg->shutdown_aux, "shutdown");
+		if (ret)
+			dev_warn(pg->dev, "Failed to add poweroff preparation device: %d\n", ret);
+		else
+			pg->shutdown_registered = true;
+	}
+
 	mutex_lock(&__pmic_glink_lock);
 	__pmic_glink = pg;
 	mutex_unlock(&__pmic_glink_lock);
@@ -376,6 +386,9 @@ out_release_pdr_handle:
 static void pmic_glink_remove(struct platform_device *pdev)
 {
 	struct pmic_glink *pg = dev_get_drvdata(&pdev->dev);
+
+	if (pg->shutdown_registered)
+		pmic_glink_del_aux_device(pg, &pg->shutdown_aux);
 
 	pdr_handle_release(pg->pdr);
 
