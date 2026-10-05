@@ -134,6 +134,17 @@ config QCOM_PMIC_GLINK
 	  Say yes here to support USB-C and battery status on modern Qualcomm
 	  platforms.
 
+config QCOM_PMIC_GLINK_SHUTDOWN
+	tristate "Qualcomm PMIC GLINK shutdown preparation"
+	depends on QCOM_PMIC_GLINK
+	help
+	  Prepare the firmware power-state mailbox before system poweroff.
+	  The driver loads through a PMIC GLINK auxiliary device and completes
+	  the exchange before device shutdown. Mailbox initialization runs when
+	  the service becomes available; power-state requests are poweroff-only.
+	  Enable this on platforms whose firmware
+	  implements the PMIC GLINK mailbox power-state service.
+
 config QCOM_RAMP_CTRL
 	tristate "Qualcomm Ramp Controller driver"
 	help
