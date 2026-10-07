@@ -372,9 +372,14 @@ static int qcom_ec_probe(struct i2c_client *client)
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "Failed to enable SCI events\n");
 
+	/*
+	 * Some EC firmwares (e.g. Lenovo Yoga Slim 7x) return a malformed
+	 * thermal capabilities response. Don't fail the probe for it, the EC
+	 * still needs to be notified of modern standby entry/exit.
+	 */
 	ret = qcom_ec_thermal_capabilities(dev);
 	if (ret < 0)
-		return dev_err_probe(dev, ret, "Failed to read thermal capabilities\n");
+		dev_warn(dev, "Failed to read thermal capabilities: %d\n", ret);
 
 	if (ec->thermal_cap.fan_cnt == 0) {
 		dev_warn(dev, FW_BUG "Failed to get fan count, firmware update required\n");
