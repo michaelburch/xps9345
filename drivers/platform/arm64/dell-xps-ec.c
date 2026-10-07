@@ -73,6 +73,16 @@ module_param(soc_tj, bool, 0444);
 MODULE_PARM_DESC(soc_tj,
 		 "Report the SoC junction temperature to the EC (default: on)");
 
+static unsigned int poll_ms = 1000;
+module_param(poll_ms, uint, 0644);
+MODULE_PARM_DESC(poll_ms,
+		 "Temperature reporting interval in ms, 100-5000 (default: 1000)");
+
+static unsigned long dell_xps_ec_poll_jiffies(void)
+{
+	return msecs_to_jiffies(clamp(READ_ONCE(poll_ms), 100U, 5000U));
+}
+
 /*
  * Mapping between IIO channel name (as per schematics) and EC command byte.
  */
@@ -274,7 +284,7 @@ static void dell_xps_ec_temp_work_fn(struct work_struct *work)
 	if (soc_tj)
 		dell_xps_ec_send_soc_temp(ec);
 
-	schedule_delayed_work(&ec->temp_work, DELL_XPS_EC_TEMP_POLL_JIFFIES);
+	schedule_delayed_work(&ec->temp_work, dell_xps_ec_poll_jiffies());
 }
 
 /* Callers must hold ec->lock; safe to call from the threaded IRQ handler. */
@@ -518,7 +528,7 @@ static int dell_xps_ec_probe(struct i2c_client *client)
 		return ret;
 	schedule_delayed_work(&ec->temp_work, DELL_XPS_EC_TEMP_POLL_JIFFIES);
 	dev_dbg(dev, "Started periodic temperature reporting to EC every %d ms\n",
-		jiffies_to_msecs(DELL_XPS_EC_TEMP_POLL_JIFFIES));
+		jiffies_to_msecs(dell_xps_ec_poll_jiffies()));
 
 	/* Request IRQ for EC events */
 	ret = devm_request_threaded_irq(dev, client->irq, NULL,
