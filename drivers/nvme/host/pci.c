@@ -1461,6 +1461,9 @@ static blk_status_t nvme_queue_rq(struct blk_mq_hw_ctx *hctx,
 	ret = nvme_prep_rq(req);
 	if (unlikely(ret))
 		return ret;
+
+	nvme_update_io_stats(&dev->ctrl, req);
+
 	spin_lock(&nvmeq->sq_lock);
 	nvme_sq_copy_cmd(nvmeq, &iod->cmd);
 	nvme_write_sq_db(nvmeq, bd->last);
@@ -1479,6 +1482,7 @@ static void nvme_submit_cmds(struct nvme_queue *nvmeq, struct rq_list *rqlist)
 	while ((req = rq_list_pop(rqlist))) {
 		struct nvme_iod *iod = blk_mq_rq_to_pdu(req);
 
+		nvme_update_io_stats(&nvmeq->dev->ctrl, req);
 		nvme_sq_copy_cmd(nvmeq, &iod->cmd);
 	}
 	nvme_write_sq_db(nvmeq, true);
@@ -3564,12 +3568,68 @@ static unsigned long nvme_pci_get_virt_boundary(struct nvme_ctrl *ctrl,
 	return 0;
 }
 
+#ifdef CONFIG_NVME_SPEED_SWITCH
+static int nvme_pci_set_link_speed(struct nvme_ctrl *ctrl, u8 target_speed)
+{
+	struct nvme_dev *dev = to_nvme_dev(ctrl);
+	struct pci_dev *pdev = to_pci_dev(ctrl->dev);
+	struct nvme_speed_switch *sw = &ctrl->speed_switch;
+	u8 current_speed;
+	u16 link_status;
+	unsigned long flags;
+	int ret = -EAGAIN;
+	int rollback_ret;
+
+	mutex_lock(&dev->shutdown_lock);
+	if (nvme_ctrl_state(ctrl) != NVME_CTRL_LIVE ||
+	    nvme_pci_ctrl_is_dead(dev))
+		goto unlock;
+
+	if (pcie_capability_read_word(pdev, PCI_EXP_LNKSTA, &link_status))
+		goto unlock;
+	current_speed = link_status & PCI_EXP_LNKSTA_CLS;
+	if (!current_speed || current_speed > sw->max_speed)
+		goto unlock;
+	if (current_speed == target_speed) {
+		ret = 0;
+		goto update;
+	}
+
+	ret = pcie_set_target_speed(pdev->bus->self,
+				    PCIE_SPEED_2_5GT + target_speed - 1, true);
+	if (ret) {
+		dev_warn(ctrl->device, "failed to set link rate Gen%u (%d)\n",
+			 target_speed, ret);
+		rollback_ret = pcie_set_target_speed(pdev->bus->self,
+						     PCIE_SPEED_2_5GT + current_speed - 1, true);
+		if (rollback_ret) {
+			dev_err(ctrl->device, "link rate rollback failed (%d)\n", rollback_ret);
+			spin_lock_irqsave(&sw->state_lock, flags);
+			WRITE_ONCE(sw->enabled, false);
+			spin_unlock_irqrestore(&sw->state_lock, flags);
+		}
+	} else {
+		current_speed = target_speed;
+	}
+update:
+	spin_lock_irqsave(&sw->state_lock, flags);
+	WRITE_ONCE(sw->cur_speed, current_speed);
+	spin_unlock_irqrestore(&sw->state_lock, flags);
+unlock:
+	mutex_unlock(&dev->shutdown_lock);
+	return ret;
+}
+#endif
+
 static const struct nvme_ctrl_ops nvme_pci_ctrl_ops = {
 	.name			= "pcie",
 	.module			= THIS_MODULE,
 	.flags			= NVME_F_METADATA_SUPPORTED,
 	.dev_attr_groups	= nvme_pci_dev_attr_groups,
 	.reg_read32		= nvme_pci_reg_read32,
+#ifdef CONFIG_NVME_SPEED_SWITCH
+	.set_link_speed		= nvme_pci_set_link_speed,
+#endif
 	.reg_write32		= nvme_pci_reg_write32,
 	.reg_read64		= nvme_pci_reg_read64,
 	.free_ctrl		= nvme_pci_free_ctrl,
@@ -3948,6 +4008,7 @@ static int nvme_resume(struct device *dev)
 	if (ctrl->hmpre && nvme_setup_host_mem(ndev))
 		goto reset;
 
+	nvme_speed_switch_start(ctrl);
 	return 0;
 reset:
 	return nvme_try_sched_reset(ctrl);

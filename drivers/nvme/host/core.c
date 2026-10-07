@@ -4697,6 +4697,7 @@ static void nvme_scan_work(struct work_struct *work)
 		/* Re-read the ANA log page to not miss updates */
 		queue_work(nvme_wq, &ctrl->ana_work);
 #endif
+	nvme_speed_switch_start(ctrl);
 }
 
 /*
@@ -5121,6 +5122,7 @@ EXPORT_SYMBOL_GPL(nvme_remove_io_tag_set);
 
 void nvme_stop_ctrl(struct nvme_ctrl *ctrl)
 {
+	nvme_speed_switch_exit(ctrl);
 	nvme_mpath_stop(ctrl);
 	nvme_auth_stop(ctrl);
 	nvme_stop_failfast_work(ctrl);
@@ -5164,6 +5166,7 @@ EXPORT_SYMBOL_GPL(nvme_start_ctrl);
 
 void nvme_uninit_ctrl(struct nvme_ctrl *ctrl)
 {
+	nvme_speed_switch_exit(ctrl);
 	nvme_stop_keep_alive(ctrl);
 	nvme_hwmon_exit(ctrl);
 	nvme_fault_inject_fini(&ctrl->fault_inject);
@@ -5320,6 +5323,8 @@ int nvme_add_ctrl(struct nvme_ctrl *ctrl)
 
 	nvme_fault_inject_init(&ctrl->fault_inject, dev_name(ctrl->device));
 	nvme_get_ctrl(ctrl);
+
+	nvme_speed_switch_init(ctrl);
 
 	return 0;
 }
