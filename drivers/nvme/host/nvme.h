@@ -339,6 +339,42 @@ enum nvme_ctrl_flags {
 	NVME_CTRL_FROZEN		= 6,
 };
 
+#ifdef CONFIG_NVME_SPEED_SWITCH
+struct nvme_speed_switch_stats {
+	atomic64_t read_bytes;
+	atomic64_t write_bytes;
+};
+
+struct nvme_speed_switch {
+	struct mutex lock;
+	spinlock_t state_lock;
+	bool initialized;
+	bool enabled;
+	bool switching;
+	u8 max_speed;
+	u8 cur_speed;
+	u8 target_speed;
+	u8 min_speed;
+	u32 monitor_interval;	/* ms */
+	u32 threshold;		/* KB */
+	u32 max_width;
+	u32 up_cnt;
+	u32 down_cnt;
+	u32 up_threshold;
+	u32 down_threshold;
+	unsigned long idle_since;
+	struct timer_list timer;
+	struct work_struct work;
+	struct nvme_speed_switch_stats __percpu *stats;
+	atomic_t timer_active;
+};
+
+enum nvme_speed_timer_state {
+	NVME_SPEED_TIMER_INACTIVE,
+	NVME_SPEED_TIMER_ACTIVE,
+};
+#endif
+
 struct nvme_ctrl {
 	bool comp_seen;
 	bool identified;
@@ -480,7 +516,24 @@ struct nvme_ctrl {
 	enum nvme_dctype dctype;
 
 	u16			awupf; /* 0's based value. */
+#ifdef CONFIG_NVME_SPEED_SWITCH
+	struct nvme_speed_switch speed_switch;
+#endif
 };
+
+#ifdef CONFIG_NVME_SPEED_SWITCH
+void nvme_update_io_stats(struct nvme_ctrl *ctrl, struct request *req);
+void nvme_speed_switch_start(struct nvme_ctrl *ctrl);
+void nvme_speed_switch_init(struct nvme_ctrl *ctrl);
+void nvme_speed_switch_exit(struct nvme_ctrl *ctrl);
+int nvme_speed_switch_set_enabled(struct nvme_ctrl *ctrl, bool enabled);
+int nvme_speed_switch_set_min(struct nvme_ctrl *ctrl, u32 speed);
+#else
+static inline void nvme_update_io_stats(struct nvme_ctrl *ctrl, struct request *req) {}
+static inline void nvme_speed_switch_start(struct nvme_ctrl *ctrl) {}
+static inline void nvme_speed_switch_init(struct nvme_ctrl *ctrl) {}
+static inline void nvme_speed_switch_exit(struct nvme_ctrl *ctrl) {}
+#endif
 
 static inline enum nvme_ctrl_state nvme_ctrl_state(struct nvme_ctrl *ctrl)
 {
@@ -658,6 +711,9 @@ struct nvme_ctrl_ops {
 
 	const struct attribute_group **dev_attr_groups;
 	int (*reg_read32)(struct nvme_ctrl *ctrl, u32 off, u32 *val);
+#ifdef CONFIG_NVME_SPEED_SWITCH
+	int (*set_link_speed)(struct nvme_ctrl *ctrl, u8 target_speed);
+#endif
 	int (*reg_write32)(struct nvme_ctrl *ctrl, u32 off, u32 val);
 	int (*reg_read64)(struct nvme_ctrl *ctrl, u32 off, u64 *val);
 	void (*free_ctrl)(struct nvme_ctrl *ctrl);
@@ -1046,6 +1102,9 @@ extern const struct attribute_group nvme_dev_attrs_group;
 extern const struct attribute_group nvme_dev_diag_attrs_group;
 extern const struct attribute_group *nvme_subsys_attrs_groups[];
 extern const struct attribute_group *nvme_dev_attr_groups[];
+#ifdef CONFIG_NVME_SPEED_SWITCH
+extern const struct attribute_group nvme_speed_attr_group;
+#endif
 extern const struct block_device_operations nvme_bdev_ops;
 
 void nvme_delete_ctrl_sync(struct nvme_ctrl *ctrl);
