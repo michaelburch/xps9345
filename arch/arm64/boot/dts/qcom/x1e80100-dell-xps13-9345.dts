@@ -823,8 +823,8 @@
 		pinctrl-0 = <&ec_int_n_default>;
 		pinctrl-names = "default";
 
-		io-channels = <&pmk8550_vadc ADC5_GEN3_AMUX3_GPIO_100K_PU(1)>,
-			      <&pmk8550_vadc ADC5_GEN3_AMUX4_GPIO_100K_PU(1)>,
+		io-channels = <&pmk8550_vadc ADC5_GEN3_AMUX1_GPIO_100K_PU(1)>,
+			      <&pmk8550_vadc ADC5_GEN3_AMUX2_GPIO_100K_PU(1)>,
 			      <&pmk8550_vadc ADC5_GEN3_AMUX1_THM_100K_PU(1)>,
 			      <&pmk8550_vadc ADC5_GEN3_AMUX2_THM_100K_PU(1)>,
 			      <&pmk8550_vadc ADC5_GEN3_AMUX3_THM_100K_PU(1)>,
@@ -1129,15 +1129,15 @@
 };
 
 &pmk8550_vadc {
-	sys_therm0: channel@14c {
-		reg = <ADC5_GEN3_AMUX3_GPIO_100K_PU(1)>;
+	sys_therm0: channel@14a {
+		reg = <ADC5_GEN3_AMUX1_GPIO_100K_PU(1)>;
 		qcom,hw-settle-time = <200>;
 		qcom,ratiometric;
 		label = "lpddr5_therm";
 	};
 
-	sys_therm1: channel@14d {
-		reg = <ADC5_GEN3_AMUX4_GPIO_100K_PU(1)>;
+	sys_therm1: channel@14b {
+		reg = <ADC5_GEN3_AMUX2_GPIO_100K_PU(1)>;
 		qcom,hw-settle-time = <200>;
 		qcom,ratiometric;
 		label = "usb_charger_left_therm";
