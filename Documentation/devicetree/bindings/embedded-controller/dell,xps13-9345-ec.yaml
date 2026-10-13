@@ -72,8 +72,8 @@ examples:
             reg = <0x3b>;
             interrupts-extended = <&tlmm 66 IRQ_TYPE_LEVEL_LOW>;
 
-            io-channels = <&pmk8550_vadc ADC5_GEN3_AMUX3_GPIO_100K_PU(1)>,
-                          <&pmk8550_vadc ADC5_GEN3_AMUX4_GPIO_100K_PU(1)>,
+            io-channels = <&pmk8550_vadc ADC5_GEN3_AMUX1_GPIO_100K_PU(1)>,
+                          <&pmk8550_vadc ADC5_GEN3_AMUX2_GPIO_100K_PU(1)>,
                           <&pmk8550_vadc ADC5_GEN3_AMUX1_THM_100K_PU(1)>,
                           <&pmk8550_vadc ADC5_GEN3_AMUX2_THM_100K_PU(1)>,
                           <&pmk8550_vadc ADC5_GEN3_AMUX3_THM_100K_PU(1)>,
