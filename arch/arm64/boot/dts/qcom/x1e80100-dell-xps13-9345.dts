@@ -1358,6 +1358,8 @@
 };
 
 &usb_mp {
+	/delete-property/ wakeup-source;
+
 	status = "okay";
 };
 
