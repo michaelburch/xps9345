@@ -13,6 +13,15 @@
 #include <linux/firmware/qcom/qcom_tzmem.h>
 #include <linux/arm-smccc.h>
 #include <linux/dma-mapping.h>
+#include <linux/of.h>
+
+/* is_hyp_mode_available() reads state a modular SCM cannot link to. */
+#if IS_ENABLED(CONFIG_ARM64) && IS_BUILTIN(CONFIG_QCOM_SCM)
+#include <asm/virt.h>
+#define qcom_scm_el2()	is_hyp_mode_available()
+#else
+#define qcom_scm_el2()	false
+#endif
 
 #include "qcom_scm.h"
 
@@ -110,6 +119,7 @@ static int __scm_smc_do_quirk_handle_waitq(struct device *dev, struct arm_smccc_
 				return ret;
 
 			fill_wq_resume_args(&resume, smc_call_ctx);
+			resume.args[7] = waitq->args[7];
 			smc = &resume;
 		}
 	} while (res->a0 == QCOM_SCM_WAITQ_SLEEP);
@@ -168,6 +178,12 @@ int __scm_smc_call(struct device *dev, const struct qcom_scm_desc *desc,
 		desc->owner,
 		SCM_SMC_FNID(desc->svc, desc->cmd));
 	smc.args[1] = desc->arginfo;
+	/* Gunyah supplies the client ID at EL1; at EL2 we must. */
+	if (qcom_smccc_convention == ARM_SMCCC_SMC_64 &&
+	    (desc->owner == ARM_SMCCC_OWNER_TRUSTED_APP ||
+	     desc->owner == ARM_SMCCC_OWNER_TRUSTED_OS) &&
+	    qcom_scm_el2() && of_machine_is_compatible("qcom,x1e80100"))
+		smc.args[7] = QCOM_SCM_VMID_HLOS;
 	for (i = 0; i < SCM_SMC_N_REG_ARGS; i++)
 		smc.args[i + SCM_SMC_FIRST_REG_IDX] = desc->args[i];
 
