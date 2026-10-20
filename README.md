@@ -15,8 +15,8 @@ Forked from [`linux-msm/laptops-kernel`](https://github.com/linux-msm/laptops-ke
 
 ## Branches
 
-- **`xps9345-7.3`** — [`qcom-laptops`](https://github.com/michaelburch/xps9345/tree/qcom-laptops) + discrete TPM (`qcom.tz.tpm`) EL2 and SPI bus-release patches ([diff](https://github.com/michaelburch/xps9345/compare/qcom-laptops...xps9345-7.3), [`.patch`](https://github.com/michaelburch/xps9345/compare/qcom-laptops...xps9345-7.3.patch))
-- **`xps9345-7.2`** — [`qcom-laptops-v7.2`](https://github.com/michaelburch/xps9345/tree/qcom-laptops-v7.2) + the same 5 TPM patches ([diff](https://github.com/michaelburch/xps9345/compare/qcom-laptops-v7.2...xps9345-7.2), [`.patch`](https://github.com/michaelburch/xps9345/compare/qcom-laptops-v7.2...xps9345-7.2.patch))
+- **`qcom-laptops`** — [`linux-msm/laptops-kernel` `qcom-laptops`](https://github.com/linux-msm/laptops-kernel/tree/qcom-laptops) (7.3) + discrete TPM (`qcom.tz.tpm`) EL2 and SPI bus-release patches ([diff](https://github.com/michaelburch/xps9345/compare/65f4ae7320b8...qcom-laptops), [`.patch`](https://github.com/michaelburch/xps9345/compare/65f4ae7320b8...qcom-laptops.patch))
+- **`qcom-laptops-v7.2`** — [`linux-msm/laptops-kernel` `qcom-laptops-v7.2`](https://github.com/linux-msm/laptops-kernel/tree/qcom-laptops-v7.2) + the same 5 TPM patches ([diff](https://github.com/michaelburch/xps9345/compare/62e0dd7464b6...qcom-laptops-v7.2), [`.patch`](https://github.com/michaelburch/xps9345/compare/62e0dd7464b6...qcom-laptops-v7.2.patch))
 
 ### Commits in the TPM series
 
