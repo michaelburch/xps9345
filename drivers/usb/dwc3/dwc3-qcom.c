@@ -335,19 +335,31 @@ static void dwc3_qcom_enable_interrupts(struct dwc3_qcom *qcom)
 		dwc3_qcom_enable_port_interrupts(&qcom->ports[i]);
 }
 
+static bool dwc3_qcom_hs_phys_in_l2(struct dwc3_qcom *qcom)
+{
+	bool in_l2 = true;
+	u32 val;
+	int i;
+
+	for (i = 0; i < qcom->num_ports; i++) {
+		val = readl(qcom->qscratch_base + pwr_evnt_irq_stat_reg[i]);
+		if (!(val & PWR_EVNT_LPM_IN_L2_MASK)) {
+			dev_err(qcom->dev, "port-%d HS-PHY not in L2\n", i + 1);
+			in_l2 = false;
+		}
+	}
+
+	return in_l2;
+}
+
 static int dwc3_qcom_suspend(struct dwc3_qcom *qcom, bool wakeup)
 {
-	u32 val;
 	int i, ret;
 
 	if (qcom->is_suspended)
 		return 0;
 
-	for (i = 0; i < qcom->num_ports; i++) {
-		val = readl(qcom->qscratch_base + pwr_evnt_irq_stat_reg[i]);
-		if (!(val & PWR_EVNT_LPM_IN_L2_MASK))
-			dev_err(qcom->dev, "port-%d HS-PHY not in L2\n", i + 1);
-	}
+	dwc3_qcom_hs_phys_in_l2(qcom);
 	clk_bulk_disable_unprepare(qcom->num_clocks, qcom->clks);
 
 	ret = dwc3_qcom_interconnect_disable(qcom);
@@ -814,6 +826,18 @@ static int dwc3_qcom_runtime_suspend(struct device *dev)
 	ret = dwc3_runtime_suspend(&qcom->dwc);
 	if (ret)
 		return ret;
+
+	/*
+	 * A HS PHY that did not enter L2 has bus activity, such as a device
+	 * being attached. Gating the clocks now would leave that event to the
+	 * wakeup interrupts, which are armed for the old line state, so back
+	 * off and let autosuspend try again later.
+	 */
+	if (!dwc3_qcom_hs_phys_in_l2(qcom)) {
+		dwc3_runtime_resume(&qcom->dwc);
+		pm_runtime_mark_last_busy(dev);
+		return -EBUSY;
+	}
 
 	return dwc3_qcom_suspend(qcom, true);
 }
