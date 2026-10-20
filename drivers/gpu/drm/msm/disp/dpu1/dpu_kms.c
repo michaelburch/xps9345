@@ -1436,6 +1436,20 @@ static int __maybe_unused dpu_runtime_suspend(struct device *dev)
 	int i;
 	struct msm_drm_private *priv = msm_drm_get_priv(dev);
 	struct dpu_kms *dpu_kms = to_dpu_kms(priv->kms);
+	unsigned long min_freq = 0;
+	struct dev_pm_opp *opp;
+
+	/*
+	 * The MDSS keeps the core clock enabled while any of its interfaces
+	 * is active (e.g. eDP in PSR), but the performance state vote goes
+	 * away with this device: don't leave the clock above what the rail
+	 * supports. dpu_runtime_resume() restores the rate.
+	 */
+	opp = dev_pm_opp_find_freq_ceil(dev, &min_freq);
+	if (!IS_ERR(opp)) {
+		dev_pm_opp_put(opp);
+		dev_pm_opp_set_rate(dev, min_freq);
+	}
 
 	clk_bulk_disable_unprepare(dpu_kms->num_clocks, dpu_kms->clocks);
 
@@ -1454,6 +1468,8 @@ static int __maybe_unused dpu_runtime_resume(struct device *dev)
 	struct drm_device *ddev;
 
 	ddev = dpu_kms->dev;
+
+	dev_pm_opp_set_rate(dev, dpu_kms->perf.core_clk_rate ?: dpu_kms->perf.max_core_clk_rate);
 
 	rc = clk_bulk_prepare_enable(dpu_kms->num_clocks, dpu_kms->clocks);
 	if (rc) {
