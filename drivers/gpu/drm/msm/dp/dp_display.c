@@ -400,6 +400,27 @@ static int msm_dp_display_handle_irq_hpd(struct msm_dp_display_private *dp)
 	return 0;
 }
 
+/*
+ * The controller is kept runtime resumed while a sink is plugged, so that it
+ * does not lose its state. Hold a single reference for that, taken and dropped
+ * when the plugged state changes, as the plug handler and detect can both set
+ * it repeatedly.
+ */
+static void msm_dp_display_set_plugged(struct msm_dp_display_private *dp,
+				       bool plugged)
+{
+	struct device *dev = &dp->msm_dp_display.pdev->dev;
+
+	lockdep_assert_held(&dp->plugged_lock);
+
+	if (plugged && !dp->plugged)
+		pm_runtime_get_noresume(dev);
+	else if (!plugged && dp->plugged)
+		pm_runtime_put(dev);
+
+	dp->plugged = plugged;
+}
+
 static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 {
 	int ret;
@@ -427,7 +448,8 @@ static int msm_dp_hpd_plug_handle(struct msm_dp_display_private *dp)
 			dp->msm_dp_display.connector_type,
 			dp->link->sink_count);
 
-	dp->plugged = true;
+	msm_dp_display_set_plugged(dp, true);
+	pm_runtime_put(&pdev->dev);
 
 	return ret;
 };
@@ -448,8 +470,6 @@ static void msm_dp_display_handle_plugged_change(struct msm_dp *msm_dp_display,
 
 static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 {
-	struct platform_device *pdev = dp->msm_dp_display.pdev;
-
 	dp->panel->video_test = false;
 
 	msm_dp_aux_enable_xfers(dp->aux, false);
@@ -487,10 +507,7 @@ static int msm_dp_hpd_unplug_handle(struct msm_dp_display_private *dp)
 			dp->msm_dp_display.connector_type,
 			dp->link->sink_count);
 
-	if (dp->plugged) {
-		pm_runtime_put_sync(&pdev->dev);
-		dp->plugged = false;
-	}
+	msm_dp_display_set_plugged(dp, false);
 
 	return 0;
 }
@@ -917,26 +934,25 @@ enum drm_connector_status msm_dp_bridge_detect(struct drm_bridge *bridge,
 	DRM_DEBUG_DP("aux link status: %x\n", ret);
 	if (!priv->plugged && !ret) {
 		DRM_DEBUG_DP("aux not connected\n");
-		priv->plugged = false;
 		goto end;
 	}
 
 	ret = drm_dp_read_dpcd_caps(priv->aux, dpcd);
 	if (ret) {
 		DRM_DEBUG_DP("failed to read caps\n");
-		priv->plugged = false;
+		msm_dp_display_set_plugged(priv, false);
 		goto end;
 	}
 
 	ret = drm_dp_read_desc(priv->aux, &desc, drm_dp_is_branch(dpcd));
 	if (ret) {
 		DRM_DEBUG_DP("failed to read desc\n");
-		priv->plugged = false;
+		msm_dp_display_set_plugged(priv, false);
 		goto end;
 	}
 
 	status = connector_status_connected;
-	priv->plugged = true;
+	msm_dp_display_set_plugged(priv, true);
 
 	if (drm_dp_read_sink_count_cap(connector, dpcd, &desc)) {
 		int sink_count = drm_dp_read_sink_count(priv->aux);
@@ -949,17 +965,15 @@ enum drm_connector_status msm_dp_bridge_detect(struct drm_bridge *bridge,
 
 end:
 	/*
-	 * If we detected the DPRX, leave the controller on so that it doesn't
-	 * lose the state.
+	 * If we detected the DPRX, the plugged reference leaves the controller
+	 * on so that it doesn't lose the state.
 	 */
-	if (!priv->plugged) {
-		if (phy_deinit) {
-			msm_dp_aux_enable_xfers(priv->aux, false);
-			msm_dp_display_host_phy_exit(priv);
-		}
-
-		pm_runtime_put_sync(&dp->pdev->dev);
+	if (!priv->plugged && phy_deinit) {
+		msm_dp_aux_enable_xfers(priv->aux, false);
+		msm_dp_display_host_phy_exit(priv);
 	}
+
+	pm_runtime_put_sync(&dp->pdev->dev);
 
 	return status;
 }
