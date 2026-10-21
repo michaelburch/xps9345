@@ -693,6 +693,8 @@ void xhci_stop(struct usb_hcd *hcd)
 	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
 	struct xhci_interrupter *ir = xhci->interrupters[0];
 
+	if (usb_hcd_is_primary_hcd(hcd))
+		xhci_debugfs_exit(xhci);
 	mutex_lock(&xhci->mutex);
 
 	/* Only halt host and free memory after both hcds are removed */
@@ -730,7 +732,6 @@ void xhci_stop(struct usb_hcd *hcd)
 
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "cleaning up memory");
 	xhci_mem_cleanup(xhci);
-	xhci_debugfs_exit(xhci);
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init,
 			"xhci_stop completed - status = %x",
 			readl(&xhci->op_regs->status));
