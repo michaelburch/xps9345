@@ -327,11 +327,17 @@ static const struct file_operations xhci_context_fops = {
 static int xhci_portsc_show(struct seq_file *s, void *unused)
 {
 	struct xhci_port	*port = s->private;
+	struct device		*dev = xhci_to_hcd(port->xhci)->self.controller;
 	u32			portsc;
 	char			str[XHCI_MSG_MAX];
+	int			ret;
 
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret < 0)
+		return ret;
 	portsc = xhci_portsc_readl(port);
 	seq_printf(s, "%s\n", xhci_decode_portsc(str, portsc));
+	pm_runtime_put(dev);
 
 	return 0;
 }
@@ -346,10 +352,12 @@ static ssize_t xhci_port_write(struct file *file,  const char __user *ubuf,
 {
 	struct seq_file         *s = file->private_data;
 	struct xhci_port	*port = s->private;
-	struct xhci_hcd		*xhci = hcd_to_xhci(port->rhub->hcd);
+	struct xhci_hcd		*xhci = port->xhci;
+	struct device		*dev = xhci_to_hcd(xhci)->self.controller;
 	char                    buf[32];
 	u32			portsc;
 	unsigned long		flags;
+	int			ret;
 
 	if (copy_from_user(&buf, ubuf, min_t(size_t, sizeof(buf) - 1, count)))
 		return -EFAULT;
@@ -358,11 +366,15 @@ static ssize_t xhci_port_write(struct file *file,  const char __user *ubuf,
 		/* If CTC is clear, compliance is enabled by default */
 		if (!(xhci->hcc_params2 & HCC2_CTC))
 			return count;
+		ret = pm_runtime_resume_and_get(dev);
+		if (ret < 0)
+			return ret;
 		spin_lock_irqsave(&xhci->lock, flags);
 		/* compliance mode can only be enabled on ports in RxDetect */
 		portsc = xhci_portsc_readl(port);
 		if ((portsc & PORT_PLS_MASK) != XDEV_RXDETECT) {
 			spin_unlock_irqrestore(&xhci->lock, flags);
+			pm_runtime_put(dev);
 			return -EPERM;
 		}
 		portsc = xhci_port_state_to_neutral(portsc);
@@ -370,6 +382,7 @@ static ssize_t xhci_port_write(struct file *file,  const char __user *ubuf,
 		portsc |= PORT_LINK_STROBE | XDEV_COMP_MODE;
 		xhci_portsc_writel(port, portsc);
 		spin_unlock_irqrestore(&xhci->lock, flags);
+		pm_runtime_put(dev);
 	} else {
 		return -EINVAL;
 	}
@@ -387,18 +400,22 @@ static const struct file_operations port_fops = {
 static int xhci_portli_show(struct seq_file *s, void *unused)
 {
 	struct xhci_port	*port = s->private;
-	struct xhci_hcd		*xhci;
+	struct xhci_hcd		*xhci = port->xhci;
+	struct device		*dev = xhci_to_hcd(xhci)->self.controller;
 	u32			portli;
+	int			ret;
 
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret < 0)
+		return ret;
 	portli = readl(&port->port_reg->portli);
+	pm_runtime_put(dev);
 
 	/* port without protocol capability isn't added to a roothub */
 	if (!port->rhub) {
 		seq_printf(s, "0x%08x\n", portli);
 		return 0;
 	}
-
-	xhci = hcd_to_xhci(port->rhub->hcd);
 
 	/* PORTLI fields are valid if port is a USB3 or eUSB2V2 port */
 	if (port->rhub == &xhci->usb3_rhub)
@@ -665,6 +682,7 @@ static void xhci_debugfs_create_ports(struct xhci_hcd *xhci,
 		scnprintf(port_name, sizeof(port_name), "port%02d", i + 1);
 		dir = debugfs_create_dir(port_name, parent);
 		port = &xhci->hw_ports[i];
+		port->xhci = xhci;
 		debugfs_create_file("portsc", 0644, dir, port, &port_fops);
 		debugfs_create_file("portli", 0444, dir, port, &portli_fops);
 	}
