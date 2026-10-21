@@ -1478,6 +1478,7 @@ struct xhci_port_cap {
 
 struct xhci_port {
 	struct xhci_port_regs __iomem	*port_reg;
+	struct xhci_hcd		*xhci;
 	int			hw_portnum;
 	int			hcd_portnum;
 	struct xhci_hub		*rhub;
