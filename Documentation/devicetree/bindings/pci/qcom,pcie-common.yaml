@@ -42,12 +42,18 @@ properties:
   dma-coherent: true
 
   interconnects:
-    maxItems: 2
+    minItems: 2
+    maxItems: 3
 
   interconnect-names:
+    minItems: 2
     items:
       - const: pcie-mem
       - const: cpu-pcie
+      - const: gic-mem
+        description:
+          Path from the GIC to memory, needed when the MSIs are delivered as
+          LPIs through the GIC ITS, which reads its tables from memory.
 
   phys:
     maxItems: 1
