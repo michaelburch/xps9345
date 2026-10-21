@@ -3559,9 +3559,12 @@
 			interconnects = <&pcie_south_anoc MASTER_PCIE_6A QCOM_ICC_TAG_ALWAYS
 					 &mc_virt SLAVE_EBI1 QCOM_ICC_TAG_ALWAYS>,
 					<&gem_noc MASTER_APPSS_PROC QCOM_ICC_TAG_ACTIVE_ONLY
-					 &cnoc_main SLAVE_PCIE_6A QCOM_ICC_TAG_ACTIVE_ONLY>;
+					 &cnoc_main SLAVE_PCIE_6A QCOM_ICC_TAG_ACTIVE_ONLY>,
+					<&system_noc MASTER_GIC1 QCOM_ICC_TAG_ALWAYS
+					 &mc_virt SLAVE_EBI1 QCOM_ICC_TAG_ALWAYS>;
 			interconnect-names = "pcie-mem",
-					     "cpu-pcie";
+					     "cpu-pcie",
+					     "gic-mem";
 
 			resets = <&gcc GCC_PCIE_6A_BCR>,
 				 <&gcc GCC_PCIE_6A_LINK_DOWN_BCR>;
@@ -3584,7 +3587,7 @@
 				opp-2500000-1 {
 					opp-hz = /bits/ 64 <2500000>;
 					required-opps = <&rpmhpd_opp_low_svs>;
-					opp-peak-kBps = <250000 1>;
+					opp-peak-kBps = <250000 1 1>;
 					opp-level = <1>;
 				};
 
@@ -3592,7 +3595,7 @@
 				opp-5000000-1 {
 					opp-hz = /bits/ 64 <5000000>;
 					required-opps = <&rpmhpd_opp_low_svs>;
-					opp-peak-kBps = <500000 1>;
+					opp-peak-kBps = <500000 1 1>;
 					opp-level = <1>;
 				};
 
@@ -3600,7 +3603,7 @@
 				opp-10000000-1 {
 					opp-hz = /bits/ 64 <10000000>;
 					required-opps = <&rpmhpd_opp_low_svs>;
-					opp-peak-kBps = <1000000 1>;
+					opp-peak-kBps = <1000000 1 1>;
 					opp-level = <1>;
 				};
 
@@ -3608,7 +3611,7 @@
 				opp-5000000-2 {
 					opp-hz = /bits/ 64 <5000000>;
 					required-opps = <&rpmhpd_opp_low_svs>;
-					opp-peak-kBps = <500000 1>;
+					opp-peak-kBps = <500000 1 1>;
 					opp-level = <2>;
 				};
 
@@ -3616,7 +3619,7 @@
 				opp-10000000-2 {
 					opp-hz = /bits/ 64 <10000000>;
 					required-opps = <&rpmhpd_opp_low_svs>;
-					opp-peak-kBps = <1000000 1>;
+					opp-peak-kBps = <1000000 1 1>;
 					opp-level = <2>;
 				};
 
@@ -3624,7 +3627,7 @@
 				opp-20000000-2 {
 					opp-hz = /bits/ 64 <20000000>;
 					required-opps = <&rpmhpd_opp_low_svs>;
-					opp-peak-kBps = <2000000 1>;
+					opp-peak-kBps = <2000000 1 1>;
 					opp-level = <2>;
 				};
 
@@ -3632,7 +3635,7 @@
 				opp-8000000-3 {
 					opp-hz = /bits/ 64 <8000000>;
 					required-opps = <&rpmhpd_opp_svs>;
-					opp-peak-kBps = <984500 1>;
+					opp-peak-kBps = <984500 1 1>;
 					opp-level = <3>;
 				};
 
@@ -3640,7 +3643,7 @@
 				opp-16000000-3 {
 					opp-hz = /bits/ 64 <16000000>;
 					required-opps = <&rpmhpd_opp_svs>;
-					opp-peak-kBps = <1969000 1>;
+					opp-peak-kBps = <1969000 1 1>;
 					opp-level = <3>;
 				};
 
@@ -3648,7 +3651,7 @@
 				opp-32000000-3 {
 					opp-hz = /bits/ 64 <32000000>;
 					required-opps = <&rpmhpd_opp_svs>;
-					opp-peak-kBps = <3938000 1>;
+					opp-peak-kBps = <3938000 1 1>;
 					opp-level = <3>;
 				};
 
@@ -3656,7 +3659,7 @@
 				opp-16000000-4 {
 					opp-hz = /bits/ 64 <16000000>;
 					required-opps = <&rpmhpd_opp_svs>;
-					opp-peak-kBps = <1969000 1>;
+					opp-peak-kBps = <1969000 1 1>;
 					opp-level = <4>;
 				};
 
@@ -3664,7 +3667,7 @@
 				opp-32000000-4 {
 					opp-hz = /bits/ 64 <32000000>;
 					required-opps = <&rpmhpd_opp_svs>;
-					opp-peak-kBps = <3938000 1>;
+					opp-peak-kBps = <3938000 1 1>;
 					opp-level = <4>;
 				};
 
@@ -3672,7 +3675,7 @@
 				opp-64000000-4 {
 					opp-hz = /bits/ 64 <64000000>;
 					required-opps = <&rpmhpd_opp_svs>;
-					opp-peak-kBps = <7876000 1>;
+					opp-peak-kBps = <7876000 1 1>;
 					opp-level = <4>;
 				};
 			};
@@ -3997,9 +4000,12 @@
 			interconnects = <&pcie_north_anoc MASTER_PCIE_4 QCOM_ICC_TAG_ALWAYS
 					 &mc_virt SLAVE_EBI1 QCOM_ICC_TAG_ALWAYS>,
 					<&gem_noc MASTER_APPSS_PROC QCOM_ICC_TAG_ACTIVE_ONLY
-					 &cnoc_main SLAVE_PCIE_4 QCOM_ICC_TAG_ACTIVE_ONLY>;
+					 &cnoc_main SLAVE_PCIE_4 QCOM_ICC_TAG_ACTIVE_ONLY>,
+					<&system_noc MASTER_GIC1 QCOM_ICC_TAG_ALWAYS
+					 &mc_virt SLAVE_EBI1 QCOM_ICC_TAG_ALWAYS>;
 			interconnect-names = "pcie-mem",
-					     "cpu-pcie";
+					     "cpu-pcie",
+					     "gic-mem";
 
 			resets = <&gcc GCC_PCIE_4_BCR>,
 				 <&gcc GCC_PCIE_4_LINK_DOWN_BCR>;
@@ -4021,7 +4027,7 @@
 				opp-2500000-1 {
 					opp-hz = /bits/ 64 <2500000>;
 					required-opps = <&rpmhpd_opp_low_svs>;
-					opp-peak-kBps = <250000 1>;
+					opp-peak-kBps = <250000 1 1>;
 					opp-level = <1>;
 				};
 
@@ -4029,7 +4035,7 @@
 				opp-5000000-1 {
 					opp-hz = /bits/ 64 <5000000>;
 					required-opps = <&rpmhpd_opp_low_svs>;
-					opp-peak-kBps = <500000 1>;
+					opp-peak-kBps = <500000 1 1>;
 					opp-level = <1>;
 				};
 
@@ -4037,7 +4043,7 @@
 				opp-5000000-2 {
 					opp-hz = /bits/ 64 <5000000>;
 					required-opps = <&rpmhpd_opp_low_svs>;
-					opp-peak-kBps = <500000 1>;
+					opp-peak-kBps = <500000 1 1>;
 					opp-level = <2>;
 				};
 
@@ -4045,7 +4051,7 @@
 				opp-10000000-2 {
 					opp-hz = /bits/ 64 <10000000>;
 					required-opps = <&rpmhpd_opp_low_svs>;
-					opp-peak-kBps = <1000000 1>;
+					opp-peak-kBps = <1000000 1 1>;
 					opp-level = <2>;
 				};
 
@@ -4053,7 +4059,7 @@
 				opp-8000000-3 {
 					opp-hz = /bits/ 64 <8000000>;
 					required-opps = <&rpmhpd_opp_svs>;
-					opp-peak-kBps = <984500 1>;
+					opp-peak-kBps = <984500 1 1>;
 					opp-level = <3>;
 				};
 
@@ -4061,7 +4067,7 @@
 				opp-16000000-3 {
 					opp-hz = /bits/ 64 <16000000>;
 					required-opps = <&rpmhpd_opp_svs>;
-					opp-peak-kBps = <1969000 1>;
+					opp-peak-kBps = <1969000 1 1>;
 					opp-level = <3>;
 				};
 			};
