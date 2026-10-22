@@ -49,6 +49,7 @@ enum qcom_scm_arg_types {
  * @arginfo:	Metadata describing the arguments in args[]
  * @args:	The array of arguments for the secure syscall
  * @owner: Owner identifier
+ * @client_id: QSEE caller identity for the SMC64 x7 register
  */
 struct qcom_scm_desc {
 	u32 svc;
@@ -56,6 +57,7 @@ struct qcom_scm_desc {
 	u32 arginfo;
 	u64 args[MAX_QCOM_SCM_ARGS];
 	u32 owner;
+	u32 client_id;
 };
 
 /**

@@ -63,6 +63,7 @@ struct qcom_scm {
 
 	struct qcom_tzmem_pool *mempool;
 	unsigned int wq_cnt;
+	u32 qseecom_client_id;
 };
 
 struct qcom_scm_current_perm_info {
@@ -2087,6 +2088,7 @@ static DEFINE_MUTEX(qcom_scm_qseecom_call_lock);
 static int __qcom_scm_qseecom_call(const struct qcom_scm_desc *desc,
 				   struct qcom_scm_qseecom_resp *res)
 {
+	struct qcom_scm_desc request = *desc;
 	struct qcom_scm_res scm_res = {};
 	int status;
 
@@ -2096,7 +2098,11 @@ static int __qcom_scm_qseecom_call(const struct qcom_scm_desc *desc,
 	 */
 	lockdep_assert_held(&qcom_scm_qseecom_call_lock);
 
-	status = qcom_scm_call(__scm->dev, desc, &scm_res);
+	if (request.owner == ARM_SMCCC_OWNER_TRUSTED_APP ||
+	    request.owner == ARM_SMCCC_OWNER_TRUSTED_OS)
+		request.client_id = __scm->qseecom_client_id;
+
+	status = qcom_scm_call(__scm->dev, &request, &scm_res);
 
 	res->result = scm_res.result[0];
 	res->resp_type = scm_res.result[1];
@@ -2802,6 +2808,14 @@ static int qcom_scm_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	scm->dev = &pdev->dev;
+	if (of_property_present(pdev->dev.of_node, "qcom,qseecom-client-id")) {
+		ret = of_property_read_u32(pdev->dev.of_node, "qcom,qseecom-client-id",
+					   &scm->qseecom_client_id);
+		if (ret)
+			return dev_err_probe(&pdev->dev, ret,
+					     "Invalid QSEECOM client ID\n");
+	}
+
 	platform_set_drvdata(pdev, scm);
 	ret = qcom_scm_find_dload_address(&pdev->dev, &scm->dload_mode_addr);
 	if (ret < 0)
