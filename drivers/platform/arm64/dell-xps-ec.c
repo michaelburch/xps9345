@@ -642,7 +642,7 @@ static struct i2c_driver dell_xps_ec_driver = {
 	.driver = {
 		.name = "dell-xps-ec",
 		.of_match_table = dell_xps_ec_of_match,
-		.pm = &dell_xps_ec_pm_ops,
+		.pm = pm_sleep_ptr(&dell_xps_ec_pm_ops),
 	},
 	.probe = dell_xps_ec_probe,
 	.remove = dell_xps_ec_remove,
