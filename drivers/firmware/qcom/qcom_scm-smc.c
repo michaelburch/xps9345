@@ -117,6 +117,7 @@ static int __scm_smc_do_quirk_handle_waitq(struct device *dev, struct arm_smccc_
 
 			trace_scm_waitq_resume(smc_call_ctx);
 			fill_wq_resume_args(&resume, smc_call_ctx);
+			resume.args[7] = waitq->args[7];
 			smc = &resume;
 		}
 	} while (res->a0 == QCOM_SCM_WAITQ_SLEEP);
@@ -175,6 +176,8 @@ int __scm_smc_call(struct device *dev, const struct qcom_scm_desc *desc,
 		desc->owner,
 		SCM_SMC_FNID(desc->svc, desc->cmd));
 	smc.args[1] = desc->arginfo;
+	if (qcom_smccc_convention == ARM_SMCCC_SMC_64)
+		smc.args[7] = desc->client_id;
 	for (i = 0; i < SCM_SMC_N_REG_ARGS; i++)
 		smc.args[i + SCM_SMC_FIRST_REG_IDX] = desc->args[i];
 
