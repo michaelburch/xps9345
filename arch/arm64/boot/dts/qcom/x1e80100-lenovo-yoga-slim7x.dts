@@ -1485,9 +1485,12 @@
 		 * events). By default, pin 71 is set as output-high, which blocks any
 		 * event on pin 92. Output-disable on pin 71 is necessary to get events on
 		 * pin 92.
-		 * The purpose of pin 71 is not yet known; lid-pull is a supposition.
+		 * In the ACPI tables, pin 71 is the card-detect GPIO of the SD card
+		 * controller (SDC2), with a pull-up. The Yoga Slim 7x has no
+		 * card reader which might explain why it has been bridged with another
+		 * pin.
 		 */
-		lid-pull-n-pins {
+		sd-cd-n-pins {
 			pins = "gpio71";
 			function = "gpio";
 			bias-pull-up;
