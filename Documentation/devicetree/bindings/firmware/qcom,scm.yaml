@@ -123,6 +123,19 @@ properties:
       should be self-owned rather than being assigned to a specific VMID.
       Defaults to QCOM_SCM_VMID_HLOS if not specified.
 
+  qcom,qseecom-client-id:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    default: 0
+    description:
+      Caller identity passed in register x7 for SMC64 QSEECOM calls to
+      trusted applications and the trusted OS. If omitted, the driver
+      passes zero, allowing a hypervisor to supply the identity. Native boot
+      firmware may require an explicit identity, such as QCOM_SCM_VMID_HLOS.
+      A shared device tree may also supply that value for hypervisor-mediated
+      boots when the platform firmware contract permits it.
+      This does not change the owner of shared memory bridge allocations,
+      which is configured separately by qcom,shm-bridge-vmid.
+
   qcom,sdi-enabled:
     description:
       Indicates that the SDI (Secure Debug Image) has been enabled by TZ
