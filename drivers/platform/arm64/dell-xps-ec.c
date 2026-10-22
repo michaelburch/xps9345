@@ -159,6 +159,7 @@ struct dell_xps_ec {
 	unsigned int irq_count;
 	unsigned int irq_faults;
 	bool irq_masked;
+	bool quiesced;
 	u8 thermal_mode;
 	unsigned int num_therms;
 	struct iio_channel *therm_channels[] __counted_by(num_therms);
@@ -314,7 +315,8 @@ static void dell_xps_ec_irq_work_fn(struct work_struct *work)
 					      irq_work.work);
 
 	mutex_lock(&ec->lock);
-	dell_xps_ec_unmask_irq(ec);
+	if (!ec->quiesced)
+		dell_xps_ec_unmask_irq(ec);
 	mutex_unlock(&ec->lock);
 }
 
@@ -426,6 +428,12 @@ static irqreturn_t dell_xps_ec_irq_handler(int irq, void *data)
 	int ret;
 
 	mutex_lock(&ec->lock);
+
+	/* The line is masked; restart services whatever is still pending. */
+	if (ec->quiesced) {
+		mutex_unlock(&ec->lock);
+		return IRQ_HANDLED;
+	}
 
 	if (time_after_eq(jiffies, ec->irq_quiet_until)) {
 		ec->irq_count = 0;
@@ -542,20 +550,21 @@ static int dell_xps_ec_probe(struct i2c_client *client)
 
 static void dell_xps_ec_quiesce(struct dell_xps_ec *ec)
 {
-	/* Cancel the recovery work first so it cannot unmask behind us. */
-	cancel_delayed_work_sync(&ec->irq_work);
-
+	/* Once set, neither the IRQ thread nor the retry work re-arms the line. */
 	mutex_lock(&ec->lock);
+	ec->quiesced = true;
 	dell_xps_ec_mask_irq(ec);
 	mutex_unlock(&ec->lock);
 
 	synchronize_irq(ec->client->irq);
+	cancel_delayed_work_sync(&ec->irq_work);
 	cancel_delayed_work_sync(&ec->temp_work);
 }
 
 static void dell_xps_ec_restart(struct dell_xps_ec *ec)
 {
 	mutex_lock(&ec->lock);
+	ec->quiesced = false;
 	ec->irq_faults = 0;
 	dell_xps_ec_unmask_irq(ec);
 	mutex_unlock(&ec->lock);
