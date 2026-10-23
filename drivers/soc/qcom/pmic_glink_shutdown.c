@@ -10,6 +10,7 @@
 #include <linux/soc/qcom/pdr.h>
 #include <linux/soc/qcom/pmic_glink.h>
 #include <linux/spinlock.h>
+#include <linux/suspend.h>
 #include <linux/unaligned.h>
 #include <linux/workqueue.h>
 
@@ -23,6 +24,9 @@
 #define QCMB_CONNECT		1
 #define QCMB_POWEROFF		0x2120
 #define QCMB_REASON_OFF		5
+#define QCMB_ACK			3
+#define QCMB_REASON_AWAKE		1
+#define QCMB_REASON_SUSPEND	2
 #define QCMB_TIMEOUT_MS		1000
 
 struct qcmb_request {
@@ -74,6 +78,7 @@ struct qcmb_test {
 	spinlock_t rx_lock;
 	struct completion reply;
 	struct notifier_block reboot;
+	struct notifier_block pm;
 	struct work_struct initialize_work;
 	u32 expected;
 	u32 status;
@@ -82,6 +87,7 @@ struct qcmb_test {
 	bool ready;
 	bool poisoned;
 	bool stopping;
+	bool resume_needed;
 };
 
 static void qcmb_receive(const void *data, size_t len, void *priv)
@@ -234,6 +240,98 @@ static void qcmb_stop(void *data)
 	cancel_work_sync(&test->initialize_work);
 }
 
+static int qcmb_wait_idle(struct qcmb_test *test)
+{
+	unsigned long deadline = jiffies + msecs_to_jiffies(QCMB_TIMEOUT_MS);
+	unsigned long flags;
+	int ret;
+
+	do {
+		ret = qcmb_transfer(test, QCMB_READ, 0, 0);
+		if (ret)
+			return ret;
+		if (!(test->status & QCMB_CONNECTED)) {
+			ret = -ENOTCONN;
+			goto poison;
+		}
+		if (!(test->status & QCMB_STATUS))
+			return 0;
+		if ((test->status & QCMB_STATUS) != QCMB_DONE) {
+			ret = -EREMOTEIO;
+			goto poison;
+		}
+		msleep(100);
+	} while (time_before(jiffies, deadline));
+	ret = -ETIMEDOUT;
+poison:
+	spin_lock_irqsave(&test->rx_lock, flags);
+	test->poisoned = true;
+	spin_unlock_irqrestore(&test->rx_lock, flags);
+	return ret;
+}
+
+static int qcmb_suspend_state(struct qcmb_test *test, u32 reason)
+{
+	int ret;
+
+	ret = qcmb_connect(test);
+	if (ret)
+		return ret;
+	if (test->status & QCMB_STATUS)
+		return -EBUSY;
+	if (reason == QCMB_REASON_SUSPEND)
+		test->resume_needed = true;
+	ret = qcmb_transfer(test, QCMB_WRITE, QCMB_POWEROFF, reason);
+	if (!ret)
+		ret = qcmb_wait(test, false);
+	if (!ret)
+		ret = qcmb_transfer(test, QCMB_WRITE, QCMB_ACK, reason);
+	if (!ret)
+		ret = qcmb_wait_idle(test);
+	return ret;
+}
+
+static int qcmb_pm(struct notifier_block *notifier, unsigned long action, void *unused)
+{
+	struct qcmb_test *test = container_of(notifier, struct qcmb_test, pm);
+	int ret = 0;
+
+	if (action != PM_SUSPEND_PREPARE && action != PM_POST_SUSPEND)
+		return NOTIFY_DONE;
+	flush_work(&test->initialize_work);
+	mutex_lock(&test->lock);
+	if (action == PM_SUSPEND_PREPARE) {
+		ret = test->resume_needed ? -EBUSY :
+			qcmb_suspend_state(test, QCMB_REASON_SUSPEND);
+		if (ret) {
+			dev_err(test->dev, "Suspend preparation failed: %d, status %#x, restore needed %u\n",
+				ret, test->status, test->resume_needed);
+			if (test->resume_needed)
+				dev_err(test->dev, "Mailbox state uncertain; cold boot required before further suspend tests\n");
+		} else {
+			dev_info(test->dev, "Suspend mailbox preparation complete (reason 2)\n");
+		}
+	} else if (test->resume_needed) {
+		ret = qcmb_suspend_state(test, QCMB_REASON_AWAKE);
+		if (ret) {
+			dev_err(test->dev, "Resume mailbox restoration failed: %d, status %#x; cold boot required\n",
+				ret, test->status);
+		} else {
+			test->resume_needed = false;
+			dev_info(test->dev, "Resume mailbox restoration complete (reason 1)\n");
+		}
+	}
+	mutex_unlock(&test->lock);
+	return action == PM_SUSPEND_PREPARE ? notifier_from_errno(ret) : NOTIFY_DONE;
+}
+
+static void qcmb_unregister_pm(void *data)
+{
+	struct qcmb_test *test = data;
+
+	unregister_pm_notifier(&test->pm);
+}
+
 static int qcmb_reboot(struct notifier_block *notifier, unsigned long action, void *unused)
 {
 	struct qcmb_test *test = container_of(notifier, struct qcmb_test, reboot);
@@ -290,7 +388,15 @@ static int qcmb_probe(struct auxiliary_device *adev, const struct auxiliary_devi
 	ret = devm_register_reboot_notifier(dev, &test->reboot);
 	if (ret)
 		return ret;
+	test->pm.notifier_call = qcmb_pm;
+	ret = register_pm_notifier(&test->pm);
+	if (ret)
+		return ret;
+	ret = devm_add_action_or_reset(dev, qcmb_unregister_pm, test);
+	if (ret)
+		return ret;
 	dev_info(dev, "Poweroff mailbox preparation enabled (flags clear)\n");
+	dev_info(dev, "Suspend mailbox preparation enabled (reasons 2/1, flags clear)\n");
 	return 0;
 }
 
@@ -307,5 +413,5 @@ static struct auxiliary_driver qcmb_driver = {
 };
 module_auxiliary_driver(qcmb_driver);
 
-MODULE_DESCRIPTION("Qualcomm PMIC GLINK shutdown preparation");
+MODULE_DESCRIPTION("Qualcomm PMIC GLINK suspend and shutdown preparation");
 MODULE_LICENSE("GPL");
