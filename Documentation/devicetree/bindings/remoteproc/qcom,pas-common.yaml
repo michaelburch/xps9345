@@ -55,7 +55,8 @@ properties:
           - description: Single bit index to toggle in the value sent to
               the remote processor
             maximum: 32
-      - description: Ping the remoteproc
+      - description: Ping the remoteproc, or report whether the AP is
+          awake (sleepstate)
         items:
           - description: Phandle to the Shared Memory Point 2 Point device
               handling the communication with a remote processor
@@ -68,7 +69,9 @@ properties:
     minItems: 1
     items:
       - const: stop
-      - const: ping
+      - enum:
+          - ping
+          - sleepstate
 
   smd-edge:
     $ref: /schemas/remoteproc/qcom,smd-edge.yaml#
