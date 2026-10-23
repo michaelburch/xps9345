@@ -770,6 +770,11 @@
 			interrupt-controller;
 			#interrupt-cells = <2>;
 		};
+
+		adsp_smp2p_sleepstate: sleepstate {
+			qcom,entry-name = "sleepstate";
+			#qcom,smem-state-cells = <1>;
+		};
 	};
 
 	smp2p-cdsp {
@@ -4573,8 +4578,10 @@
 
 			qcom,qmp = <&aoss_qmp>;
 
-			qcom,smem-states = <&smp2p_adsp_out 0>;
-			qcom,smem-state-names = "stop";
+			qcom,smem-states = <&smp2p_adsp_out 0>,
+					   <&adsp_smp2p_sleepstate 12>;
+			qcom,smem-state-names = "stop",
+						"sleepstate";
 
 			status = "disabled";
 
