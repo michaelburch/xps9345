@@ -135,13 +135,15 @@ config QCOM_PMIC_GLINK
 	  platforms.
 
 config QCOM_PMIC_GLINK_SHUTDOWN
-	tristate "Qualcomm PMIC GLINK shutdown preparation"
+	tristate "Qualcomm PMIC GLINK suspend and shutdown preparation"
 	depends on QCOM_PMIC_GLINK
 	help
-	  Prepare the firmware power-state mailbox before system poweroff.
+	  Prepare the firmware power-state mailbox before suspend or poweroff.
 	  The driver loads through a PMIC GLINK auxiliary device and completes
 	  the exchange before device shutdown. Mailbox initialization runs when
-	  the service becomes available; power-state requests are poweroff-only.
+	  the service becomes available. Suspend entry and exit use paired
+	  firmware requests, including restoration after an aborted suspend.
+	  Failed preparation prevents suspend; hibernation is unchanged.
 	  Enable this on platforms whose firmware
 	  implements the PMIC GLINK mailbox power-state service.
 
