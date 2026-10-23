@@ -5,6 +5,7 @@
 
 #include <linux/kernel.h>
 #include <linux/completion.h>
+#include <linux/notifier.h>
 #include <linux/spinlock.h>
 #include <linux/soc/qcom/qcom_aoss.h>
 
@@ -23,6 +24,10 @@ struct qcom_q6v5 {
 	struct icc_path *path;
 
 	unsigned stop_bit;
+
+	struct qcom_smem_state *sleep_state;
+	unsigned int sleep_bit;
+	struct notifier_block pm_nb;
 
 	int wdog_irq;
 	int fatal_irq;

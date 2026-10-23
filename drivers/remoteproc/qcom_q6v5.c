@@ -11,10 +11,12 @@
 #include <linux/interconnect.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/soc/qcom/qcom_aoss.h>
 #include <linux/soc/qcom/smem.h>
 #include <linux/soc/qcom/smem_state.h>
 #include <linux/remoteproc.h>
+#include <linux/suspend.h>
 #include "qcom_common.h"
 #include "qcom_q6v5.h"
 
@@ -331,6 +333,71 @@ void qcom_q6v5_read_smp2p_state(struct qcom_q6v5 *q6v5)
 }
 EXPORT_SYMBOL_GPL(qcom_q6v5_read_smp2p_state);
 
+static int q6v5_set_ap_awake(struct qcom_q6v5 *q6v5, bool awake)
+{
+	u32 mask = BIT(q6v5->sleep_bit);
+
+	return qcom_smem_state_update_bits(q6v5->sleep_state, mask,
+					   awake ? mask : 0);
+}
+
+static int q6v5_pm_notify(struct notifier_block *nb, unsigned long action,
+			  void *data)
+{
+	struct qcom_q6v5 *q6v5 = container_of(nb, struct qcom_q6v5, pm_nb);
+	bool awake;
+	int ret;
+
+	switch (action) {
+	case PM_SUSPEND_PREPARE:
+		awake = false;
+		break;
+	case PM_POST_SUSPEND:
+		awake = true;
+		break;
+	default:
+		return NOTIFY_DONE;
+	}
+
+	ret = q6v5_set_ap_awake(q6v5, awake);
+	if (ret)
+		dev_warn(q6v5->dev, "failed to report AP %s: %d\n",
+			 awake ? "awake" : "asleep", ret);
+	else
+		dev_dbg(q6v5->dev, "reported AP %s\n",
+			awake ? "awake" : "asleep");
+
+	/* A failed update is reported above; suspend proceeds regardless. */
+	return NOTIFY_DONE;
+}
+
+static int q6v5_init_sleep_state(struct qcom_q6v5 *q6v5)
+{
+	struct device *dev = q6v5->dev;
+	int ret;
+
+	/* The AP sleep state is optional; most remoteprocs do not consume it */
+	if (of_property_match_string(dev->of_node, "qcom,smem-state-names",
+				     "sleepstate") < 0)
+		return 0;
+
+	q6v5->sleep_state = devm_qcom_smem_state_get(dev, "sleepstate",
+						     &q6v5->sleep_bit);
+	if (IS_ERR(q6v5->sleep_state)) {
+		ret = PTR_ERR(q6v5->sleep_state);
+		q6v5->sleep_state = NULL;
+		return dev_err_probe(dev, ret,
+				     "failed to acquire sleepstate state\n");
+	}
+
+	ret = q6v5_set_ap_awake(q6v5, true);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to report AP awake\n");
+
+	q6v5->pm_nb.notifier_call = q6v5_pm_notify;
+	return register_pm_notifier(&q6v5->pm_nb);
+}
+
 /**
  * qcom_q6v5_init() - initializer of the q6v5 common struct
  * @q6v5:	handle to be initialized
@@ -436,11 +503,21 @@ int qcom_q6v5_init(struct qcom_q6v5 *q6v5, struct platform_device *pdev,
 	}
 
 	q6v5->path = devm_of_icc_get(&pdev->dev, NULL);
-	if (IS_ERR(q6v5->path))
-		return dev_err_probe(&pdev->dev, PTR_ERR(q6v5->path),
-				     "failed to acquire interconnect path\n");
+	if (IS_ERR(q6v5->path)) {
+		ret = dev_err_probe(&pdev->dev, PTR_ERR(q6v5->path),
+				    "failed to acquire interconnect path\n");
+		goto put_qmp;
+	}
+
+	ret = q6v5_init_sleep_state(q6v5);
+	if (ret)
+		goto put_qmp;
 
 	return 0;
+
+put_qmp:
+	qmp_put(q6v5->qmp);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(qcom_q6v5_init);
 
@@ -450,6 +527,8 @@ EXPORT_SYMBOL_GPL(qcom_q6v5_init);
  */
 void qcom_q6v5_deinit(struct qcom_q6v5 *q6v5)
 {
+	if (q6v5->sleep_state)
+		unregister_pm_notifier(&q6v5->pm_nb);
 	qmp_put(q6v5->qmp);
 }
 EXPORT_SYMBOL_GPL(qcom_q6v5_deinit);
