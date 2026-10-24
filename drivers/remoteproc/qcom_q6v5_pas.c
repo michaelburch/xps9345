@@ -844,6 +844,9 @@ static int qcom_pas_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
+	if (ops == &qcom_pas_ops_no_reset)
+		rproc->recovery_disabled = true;
+
 	rproc->has_iommu = of_property_present(pdev->dev.of_node, "iommus");
 	if (desc->auto_boot) {
 		if (ops->start)
