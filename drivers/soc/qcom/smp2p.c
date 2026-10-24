@@ -15,6 +15,7 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/pm_wakeirq.h>
+#include <linux/pm_wakeup.h>
 #include <linux/regmap.h>
 #include <linux/seq_file.h>
 #include <linux/soc/qcom/smem.h>
@@ -771,24 +772,30 @@ static int qcom_smp2p_probe(struct platform_device *pdev)
 	qcom_smp2p_kick(smp2p);
 
 	/*
-	 * Treat smp2p interrupt as wakeup source, but keep it disabled
-	 * by default. User space can decide enabling it depending on its
-	 * use cases. For example if remoteproc crashes and device wants
-	 * to handle it immediatedly (e.g. to not miss phone calls) it can
-	 * enable wakeup source from user space, while other devices which
-	 * do not have proper autosleep feature may want to handle it with
-	 * other wakeup events (e.g. Power button) instead waking up immediately.
+	 * Leave unmarked edges disabled by default. Userspace can override
+	 * either policy through power/wakeup.
 	 */
 	device_set_wakeup_capable(&pdev->dev, true);
+	ret = device_set_wakeup_enable(&pdev->dev,
+				       of_property_read_bool(pdev->dev.of_node,
+							     "wakeup-source"));
+	if (ret) {
+		dev_err(&pdev->dev, "failed to configure wakeup source: %d\n", ret);
+		goto set_wake_irq_fail;
+	}
 
 	ret = dev_pm_set_wake_irq(&pdev->dev, irq);
-	if (ret)
+	if (ret) {
+		dev_err(&pdev->dev, "failed to attach wake IRQ: %d\n", ret);
 		goto set_wake_irq_fail;
+	}
 
 	return 0;
 
 set_wake_irq_fail:
 	dev_pm_clear_wake_irq(&pdev->dev);
+	device_init_wakeup(&pdev->dev, false);
+	devm_free_irq(&pdev->dev, irq, smp2p);
 
 unwind_interfaces:
 	list_for_each_entry(entry, &smp2p->inbound, node)
@@ -815,6 +822,7 @@ static void qcom_smp2p_remove(struct platform_device *pdev)
 	struct smp2p_entry *entry;
 
 	dev_pm_clear_wake_irq(&pdev->dev);
+	device_init_wakeup(&pdev->dev, false);
 
 	list_for_each_entry(entry, &smp2p->inbound, node)
 		irq_domain_remove(entry->domain);
