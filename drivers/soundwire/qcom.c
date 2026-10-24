@@ -693,17 +693,17 @@ static irqreturn_t qcom_swrm_wake_irq_handler(int irq, void *dev_id)
 	int ret;
 
 	ret = pm_runtime_get_sync(ctrl->dev);
+	if (ctrl->wake_irq > 0) {
+		if (!irqd_irq_disabled(irq_get_irq_data(ctrl->wake_irq)))
+			disable_irq_nosync(ctrl->wake_irq);
+	}
+
 	if (ret < 0 && ret != -EACCES) {
 		dev_err_ratelimited(ctrl->dev,
 				    "pm_runtime_get_sync failed in %s, ret %d\n",
 				    __func__, ret);
 		pm_runtime_put_noidle(ctrl->dev);
-		return ret;
-	}
-
-	if (ctrl->wake_irq > 0) {
-		if (!irqd_irq_disabled(irq_get_irq_data(ctrl->wake_irq)))
-			disable_irq_nosync(ctrl->wake_irq);
+		return IRQ_HANDLED;
 	}
 
 	pm_runtime_mark_last_busy(ctrl->dev);
@@ -856,22 +856,26 @@ static irqreturn_t qcom_swrm_irq_handler(int irq, void *dev_id)
 	return ret;
 }
 
-static bool swrm_wait_for_frame_gen_enabled(struct qcom_swrm_ctrl *ctrl)
+static bool swrm_wait_for_frame_gen(struct qcom_swrm_ctrl *ctrl, bool enabled)
 {
 	int retry = SWRM_LINK_STATUS_RETRY_CNT;
-	int comp_sts;
+	u32 comp_sts;
+	int ret;
 
 	do {
-		ctrl->reg_read(ctrl, ctrl->reg_layout[SWRM_REG_FRAME_GEN_ENABLED],
-			       &comp_sts);
-		if (comp_sts & SWRM_FRM_GEN_ENABLED)
+		ret = ctrl->reg_read(ctrl, ctrl->reg_layout[SWRM_REG_FRAME_GEN_ENABLED],
+				     &comp_sts);
+		if (ret) {
+			dev_err(ctrl->dev, "link status read failed: %d\n", ret);
+			return false;
+		}
+		if (!!(comp_sts & SWRM_FRM_GEN_ENABLED) == enabled)
 			return true;
 
 		usleep_range(500, 510);
 	} while (retry--);
 
-	dev_err(ctrl->dev, "%s: link status not %s\n", __func__,
-		comp_sts & SWRM_FRM_GEN_ENABLED ? "connected" : "disconnected");
+	dev_err(ctrl->dev, "frame generator failed to %s\n", enabled ? "start" : "stop");
 
 	return false;
 }
@@ -945,7 +949,7 @@ static int qcom_swrm_init(struct qcom_swrm_ctrl *ctrl)
 			SWRM_COMP_CFG_IRQ_LEVEL_OR_PULSE_MSK |
 			SWRM_COMP_CFG_ENABLE_MSK);
 
-	swrm_wait_for_frame_gen_enabled(ctrl);
+	swrm_wait_for_frame_gen(ctrl, true);
 	ctrl->slave_status = 0;
 	ctrl->reg_read(ctrl, SWRM_COMP_PARAMS, &val);
 
@@ -1719,17 +1723,80 @@ static void qcom_swrm_remove(struct platform_device *pdev)
 	clk_disable_unprepare(ctrl->hclk);
 }
 
+static int swrm_set_clash_irq(struct qcom_swrm_ctrl *ctrl, bool enable)
+{
+	int ret;
+
+	if (enable) {
+		ret = ctrl->reg_write(ctrl, ctrl->reg_layout[SWRM_REG_INTERRUPT_CLEAR],
+				      SWRM_INTERRUPT_STATUS_MASTER_CLASH_DET);
+		if (ret)
+			return ret < 0 ? ret : -EIO;
+		ctrl->intr_mask |= SWRM_INTERRUPT_STATUS_MASTER_CLASH_DET;
+	} else {
+		ctrl->intr_mask &= ~SWRM_INTERRUPT_STATUS_MASTER_CLASH_DET;
+	}
+
+	if (ctrl->version < SWRM_VERSION_2_0_0) {
+		ret = ctrl->reg_write(ctrl, ctrl->reg_layout[SWRM_REG_INTERRUPT_MASK_ADDR],
+				      ctrl->intr_mask);
+		if (ret)
+			return ret < 0 ? ret : -EIO;
+	}
+	ret = ctrl->reg_write(ctrl, ctrl->reg_layout[SWRM_REG_INTERRUPT_CPU_EN],
+			      ctrl->intr_mask);
+	return ret > 0 ? -EIO : ret;
+}
+
+static int swrm_restart_clock(struct qcom_swrm_ctrl *ctrl)
+{
+	int ret;
+
+	ret = reset_control_reset(ctrl->audio_cgcr);
+	if (ret)
+		return ret;
+
+	if (ctrl->version == SWRM_VERSION_1_7_0 || ctrl->version >= SWRM_VERSION_2_0_0) {
+		ret = ctrl->reg_write(ctrl, SWRM_LINK_MANAGER_EE, SWRM_EE_CPU);
+		if (ret)
+			goto write_error;
+	}
+
+	if (ctrl->version == SWRM_VERSION_1_7_0)
+		ret = ctrl->reg_write(ctrl, SWRM_MCP_BUS_CTRL,
+				      SWRM_MCP_BUS_CLK_START << SWRM_EE_CPU);
+	else if (ctrl->version >= SWRM_VERSION_2_0_0)
+		ret = ctrl->reg_write(ctrl, SWRM_V2_0_CLK_CTRL,
+				      SWRM_V2_0_CLK_CTRL_CLK_START);
+	else
+		ret = ctrl->reg_write(ctrl, SWRM_MCP_BUS_CTRL, SWRM_MCP_BUS_CLK_START);
+	if (ret)
+		goto write_error;
+
+	disable_irq(ctrl->irq);
+	ret = swrm_set_clash_irq(ctrl, true);
+	enable_irq(ctrl->irq);
+	if (ret)
+		goto write_error;
+
+	usleep_range(100, 105);
+	if (!swrm_wait_for_frame_gen(ctrl, true))
+		return -ETIMEDOUT;
+
+	return sdw_bus_exit_clk_stop(&ctrl->bus);
+
+write_error:
+	return ret < 0 ? ret : -EIO;
+}
+
 static int __maybe_unused swrm_runtime_resume(struct device *dev)
 {
 	struct qcom_swrm_ctrl *ctrl = dev_get_drvdata(dev);
 	int ret;
 
-	if (ctrl->wake_irq > 0) {
-		if (!irqd_irq_disabled(irq_get_irq_data(ctrl->wake_irq)))
-			disable_irq_nosync(ctrl->wake_irq);
-	}
-
-	clk_prepare_enable(ctrl->hclk);
+	ret = clk_prepare_enable(ctrl->hclk);
+	if (ret)
+		return ret;
 	enable_irq(ctrl->irq);
 
 	if (ctrl->clock_stop_not_supported) {
@@ -1740,7 +1807,7 @@ static int __maybe_unused swrm_runtime_resume(struct device *dev)
 		qcom_swrm_init(ctrl);
 
 		usleep_range(100, 105);
-		if (!swrm_wait_for_frame_gen_enabled(ctrl))
+		if (!swrm_wait_for_frame_gen(ctrl, true))
 			dev_err(ctrl->dev, "link failed to connect\n");
 
 		/* wait for hw enumeration to complete */
@@ -1749,37 +1816,18 @@ static int __maybe_unused swrm_runtime_resume(struct device *dev)
 		qcom_swrm_get_device_status(ctrl);
 		sdw_handle_slave_status(&ctrl->bus, ctrl->status);
 	} else {
-		reset_control_reset(ctrl->audio_cgcr);
-
-		if (ctrl->version == SWRM_VERSION_1_7_0) {
-			ctrl->reg_write(ctrl, SWRM_LINK_MANAGER_EE, SWRM_EE_CPU);
-			ctrl->reg_write(ctrl, SWRM_MCP_BUS_CTRL,
-					SWRM_MCP_BUS_CLK_START << SWRM_EE_CPU);
-		} else if (ctrl->version >= SWRM_VERSION_2_0_0) {
-			ctrl->reg_write(ctrl, SWRM_LINK_MANAGER_EE, SWRM_EE_CPU);
-			ctrl->reg_write(ctrl, SWRM_V2_0_CLK_CTRL,
-					SWRM_V2_0_CLK_CTRL_CLK_START);
-		} else {
-			ctrl->reg_write(ctrl, SWRM_MCP_BUS_CTRL, SWRM_MCP_BUS_CLK_START);
-		}
-		ctrl->reg_write(ctrl, ctrl->reg_layout[SWRM_REG_INTERRUPT_CLEAR],
-			SWRM_INTERRUPT_STATUS_MASTER_CLASH_DET);
-
-		ctrl->intr_mask |= SWRM_INTERRUPT_STATUS_MASTER_CLASH_DET;
-		if (ctrl->version < SWRM_VERSION_2_0_0)
-			ctrl->reg_write(ctrl,
-					ctrl->reg_layout[SWRM_REG_INTERRUPT_MASK_ADDR],
-					ctrl->intr_mask);
-		ctrl->reg_write(ctrl, ctrl->reg_layout[SWRM_REG_INTERRUPT_CPU_EN],
-				ctrl->intr_mask);
-
-		usleep_range(100, 105);
-		if (!swrm_wait_for_frame_gen_enabled(ctrl))
-			dev_err(ctrl->dev, "link failed to connect\n");
-
-		ret = sdw_bus_exit_clk_stop(&ctrl->bus);
-		if (ret < 0)
+		ret = swrm_restart_clock(ctrl);
+		if (ret < 0) {
 			dev_err(ctrl->dev, "bus failed to exit clock stop %d\n", ret);
+			disable_irq(ctrl->irq);
+			clk_disable_unprepare(ctrl->hclk);
+			return ret;
+		}
+	}
+
+	if (ctrl->wake_irq > 0) {
+		if (!irqd_irq_disabled(irq_get_irq_data(ctrl->wake_irq)))
+			disable_irq_nosync(ctrl->wake_irq);
 	}
 
 	return 0;
@@ -1788,29 +1836,38 @@ static int __maybe_unused swrm_runtime_resume(struct device *dev)
 static int __maybe_unused swrm_runtime_suspend(struct device *dev)
 {
 	struct qcom_swrm_ctrl *ctrl = dev_get_drvdata(dev);
-	int ret;
+	bool restore_clash;
+	int ret, mask_ret;
 
 	swrm_wait_for_wr_fifo_done(ctrl);
 	if (!ctrl->clock_stop_not_supported) {
 		/* Mask bus clash interrupt */
-		ctrl->intr_mask &= ~SWRM_INTERRUPT_STATUS_MASTER_CLASH_DET;
-		if (ctrl->version < SWRM_VERSION_2_0_0)
-			ctrl->reg_write(ctrl,
-					ctrl->reg_layout[SWRM_REG_INTERRUPT_MASK_ADDR],
-					ctrl->intr_mask);
-		ctrl->reg_write(ctrl, ctrl->reg_layout[SWRM_REG_INTERRUPT_CPU_EN],
-				ctrl->intr_mask);
+		disable_irq(ctrl->irq);
+		restore_clash = ctrl->intr_mask & SWRM_INTERRUPT_STATUS_MASTER_CLASH_DET;
+		ret = swrm_set_clash_irq(ctrl, false);
+		enable_irq(ctrl->irq);
+		if (ret)
+			goto restore_mask;
 		/* Prepare slaves for clock stop */
 		ret = sdw_bus_prep_clk_stop(&ctrl->bus);
 		if (ret < 0 && ret != -ENODATA) {
 			dev_err(dev, "prepare clock stop failed %d", ret);
-			return ret;
+			goto restore_mask;
 		}
 
 		ret = sdw_bus_clk_stop(&ctrl->bus);
 		if (ret < 0 && ret != -ENODATA) {
 			dev_err(dev, "bus clock stop failed %d", ret);
-			return ret;
+			goto restore_mask;
+		}
+
+		if (ctrl->version > SWRM_VERSION_1_5_1 &&
+		    !swrm_wait_for_frame_gen(ctrl, false)) {
+			ret = swrm_restart_clock(ctrl);
+			if (ret < 0)
+				dev_err(dev, "clock stop rollback failed: %d\n", ret);
+			ret = -EBUSY;
+			goto restore_mask;
 		}
 	}
 
@@ -1825,6 +1882,14 @@ static int __maybe_unused swrm_runtime_suspend(struct device *dev)
 	}
 
 	return 0;
+
+restore_mask:
+	disable_irq(ctrl->irq);
+	mask_ret = swrm_set_clash_irq(ctrl, restore_clash);
+	enable_irq(ctrl->irq);
+	if (mask_ret)
+		dev_err(dev, "failed to restore clash interrupt mask: %d\n", mask_ret);
+	return ret;
 }
 
 static const struct dev_pm_ops swrm_dev_pm_ops = {
