@@ -1817,6 +1817,11 @@ static int rproc_boot_recovery(struct rproc *rproc)
 	struct device *dev = &rproc->dev;
 	int ret;
 
+	if (!rproc->ops->start || !rproc->ops->stop) {
+		dev_err(dev, "boot recovery requires start and stop operations\n");
+		return -EOPNOTSUPP;
+	}
+
 	ret = rproc_stop(rproc, true);
 	if (ret)
 		return ret;
