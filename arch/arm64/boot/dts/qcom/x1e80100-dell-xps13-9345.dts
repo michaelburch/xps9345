@@ -27,6 +27,14 @@
 		serial1 = &uart14;
 	};
 
+	smp2p-adsp {
+		wakeup-source;
+	};
+
+	smp2p-cdsp {
+		wakeup-source;
+	};
+
 	gpio-keys {
 		compatible = "gpio-keys";
 
