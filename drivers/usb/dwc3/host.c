@@ -23,6 +23,34 @@
 #define XHCI_HCSPARAMS1		0x4
 #define XHCI_PORTSC_BASE	0x400
 
+static bool dwc3_root_has_wakeup_descendants(struct usb_hcd *hcd)
+{
+	struct usb_device *root;
+
+	if (!hcd || !hcd->self.root_hub)
+		return false;
+
+	root = hcd->self.root_hub;
+
+	/* The root hub's own wake policy does not imply an attached device. */
+	return usb_wakeup_enabled_descendants(root) > root->do_remote_wakeup;
+}
+
+bool dwc3_host_wakeup_enabled(struct dwc3 *dwc)
+{
+	struct usb_hcd *hcd;
+
+	if (!dwc->xhci)
+		return false;
+
+	hcd = platform_get_drvdata(dwc->xhci);
+	if (!hcd)
+		return false;
+
+	return dwc3_root_has_wakeup_descendants(hcd) ||
+		dwc3_root_has_wakeup_descendants(hcd->shared_hcd);
+}
+
 /**
  * dwc3_power_off_all_roothub_ports - Power off all Root hub ports
  * @dwc: Pointer to our controller context structure
