@@ -2570,7 +2570,7 @@ static int dwc3_suspend_common(struct dwc3 *dwc, pm_message_t msg)
 		break;
 	case DWC3_GCTL_PRTCAP_HOST:
 		if (!PMSG_IS_AUTO(msg) &&
-		    (!device_may_wakeup(dwc->dev) || dwc->needs_full_reinit)) {
+		    (!dwc3_host_system_wakeup(dwc) || dwc->needs_full_reinit)) {
 			dwc3_core_exit(dwc);
 			break;
 		}
@@ -2634,7 +2634,7 @@ static int dwc3_resume_common(struct dwc3 *dwc, pm_message_t msg)
 		break;
 	case DWC3_GCTL_PRTCAP_HOST:
 		if (!PMSG_IS_AUTO(msg) &&
-		    (!device_may_wakeup(dwc->dev) || dwc->needs_full_reinit)) {
+		    (!dwc3_host_system_wakeup(dwc) || dwc->needs_full_reinit)) {
 			ret = dwc3_core_init_for_resume(dwc);
 			if (ret)
 				return ret;
@@ -2792,6 +2792,10 @@ int dwc3_pm_suspend(struct dwc3 *dwc)
 {
 	struct device *dev = dwc->dev;
 	int		ret;
+
+	if (dwc->wakeup_only_connected)
+		dwc->host_system_wakeup = device_may_wakeup(dev) &&
+			dwc3_host_wakeup_enabled(dwc);
 
 	ret = dwc3_suspend_common(dwc, PMSG_SUSPEND);
 	if (ret)

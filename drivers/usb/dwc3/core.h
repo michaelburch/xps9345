@@ -19,6 +19,7 @@
 #include <linux/bitops.h>
 #include <linux/dma-mapping.h>
 #include <linux/mm.h>
+#include <linux/pm_wakeup.h>
 #include <linux/debugfs.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
@@ -1135,6 +1136,8 @@ struct dwc3_glue_ops {
  * @usb2_gadget_lpm_disable: set to disable usb2 lpm for gadget
  * @needs_full_reinit: set to indicate the core may lose power and need full
  *			initialization during system pm
+ * @wakeup_only_connected: require a wake-enabled USB descendant for host system wake
+ * @host_system_wakeup: saved host wake decision for the current system sleep cycle
  * @disable_scramble_quirk: set if we enable the disable scramble quirk
  * @u2exit_lfps_quirk: set if we enable u2exit lfps quirk
  * @u2ss_inp3_quirk: set if we enable P3 OK for U2/SS Inactive quirk
@@ -1403,6 +1406,8 @@ struct dwc3 {
 	unsigned		usb2_lpm_disable:1;
 	unsigned		usb2_gadget_lpm_disable:1;
 	unsigned		needs_full_reinit:1;
+	unsigned		wakeup_only_connected:1;
+	unsigned		host_system_wakeup:1;
 
 	unsigned		disable_scramble_quirk:1;
 	unsigned		u2exit_lfps_quirk:1;
@@ -1677,12 +1682,23 @@ static inline void dwc3_pre_run_stop(struct dwc3 *dwc, bool is_on)
 #if IS_ENABLED(CONFIG_USB_DWC3_HOST) || IS_ENABLED(CONFIG_USB_DWC3_DUAL_ROLE)
 int dwc3_host_init(struct dwc3 *dwc);
 void dwc3_host_exit(struct dwc3 *dwc);
+bool dwc3_host_wakeup_enabled(struct dwc3 *dwc);
 #else
 static inline int dwc3_host_init(struct dwc3 *dwc)
 { return 0; }
 static inline void dwc3_host_exit(struct dwc3 *dwc)
 { }
+static inline bool dwc3_host_wakeup_enabled(struct dwc3 *dwc)
+{ return false; }
 #endif
+
+static inline bool dwc3_host_system_wakeup(struct dwc3 *dwc)
+{
+	if (dwc->wakeup_only_connected)
+		return dwc->host_system_wakeup;
+
+	return device_may_wakeup(dwc->dev);
+}
 
 #if IS_ENABLED(CONFIG_USB_DWC3_GADGET) || IS_ENABLED(CONFIG_USB_DWC3_DUAL_ROLE)
 int dwc3_gadget_init(struct dwc3 *dwc);
