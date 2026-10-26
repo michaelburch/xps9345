@@ -17,8 +17,10 @@
 #include <linux/minmax.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/notifier.h>
 #include <linux/overflow.h>
 #include <linux/pm.h>
+#include <linux/suspend.h>
 #include <linux/thermal.h>
 #include <linux/types.h>
 #include <linux/unaligned.h>
@@ -153,6 +155,7 @@ struct dell_xps_ec {
 	const struct dell_xps_ec_data *data;
 	struct delayed_work temp_work;
 	struct delayed_work irq_work;
+	struct notifier_block pm_nb;
 	/* Serialises every transfer to the EC. */
 	struct mutex lock;
 	unsigned long irq_quiet_until;
@@ -160,6 +163,8 @@ struct dell_xps_ec {
 	unsigned int irq_faults;
 	bool irq_masked;
 	bool quiesced;
+	bool sleep_pending;
+	bool pm_prepared;
 	u8 thermal_mode;
 	unsigned int num_therms;
 	struct iio_channel *therm_channels[] __counted_by(num_therms);
@@ -476,6 +481,10 @@ fault:
 	return IRQ_HANDLED;
 }
 
+static int dell_xps_ec_pm_notify(struct notifier_block *nb,
+				 unsigned long action, void *unused);
+static void dell_xps_ec_quiesce(struct dell_xps_ec *ec);
+
 static int dell_xps_ec_probe(struct i2c_client *client)
 {
 	const struct dell_xps_ec_data *data;
@@ -545,7 +554,16 @@ static int dell_xps_ec_probe(struct i2c_client *client)
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to request IRQ\n");
 
-	return 0;
+	/* Send the EC state before PLD (priority 1) and QCMB (priority 0). */
+	ec->pm_nb.notifier_call = dell_xps_ec_pm_notify;
+	ec->pm_nb.priority = 2;
+	ret = register_pm_notifier(&ec->pm_nb);
+	if (ret) {
+		dell_xps_ec_quiesce(ec);
+		return dev_err_probe(dev, ret, "Failed to register PM notifier\n");
+	}
+
+	return ret;
 }
 
 static void dell_xps_ec_quiesce(struct dell_xps_ec *ec)
@@ -572,49 +590,102 @@ static void dell_xps_ec_restart(struct dell_xps_ec *ec)
 	schedule_delayed_work(&ec->temp_work, DELL_XPS_EC_TEMP_POLL_JIFFIES);
 }
 
-/*
- * Notify EC of suspend
- *
- * This will:
- * - Cut power to display/trackpad/keyboard/touchrow, wake-up source still works.
- */
-static int dell_xps_ec_suspend(struct device *dev)
+static int dell_xps_ec_finish_sleep(struct dell_xps_ec *ec)
 {
-	struct dell_xps_ec *ec = dev_get_drvdata(dev);
 	int ret;
 
-	dell_xps_ec_quiesce(ec);
-
-	ret = dell_xps_ec_suspend_cmd(ec, true);
-	if (ret)
-		dell_xps_ec_restart(ec);
-
-	return ret;
-}
-
-/*
- * Notify EC of resume
- *
- * This will undo the suspend actions. Without the resume signal, device would
- * wake up but be forced back into suspend by EC within seconds.
- */
-static int dell_xps_ec_resume(struct device *dev)
-{
-	struct dell_xps_ec *ec = dev_get_drvdata(dev);
-	int ret;
+	if (!ec->sleep_pending)
+		return 0;
 
 	ret = dell_xps_ec_suspend_cmd(ec, false);
-	if (ret)
+	if (ret) {
+		dev_err(ec->dev, "Failed to restore EC awake state: %d; traffic remains stopped, cold boot required\n",
+			ret);
 		return ret;
+	}
 
+	ec->sleep_pending = false;
+	dev_info(ec->dev, "EC awake notification complete (0xb9=0)\n");
 	dell_xps_ec_restart(ec);
 
 	return 0;
 }
 
+static int dell_xps_ec_prepare_sleep(struct dell_xps_ec *ec)
+{
+	int ret;
+
+	if (ec->sleep_pending) {
+		dev_err(ec->dev, "EC awake state is unresolved; refusing another suspend\n");
+		return -EBUSY;
+	}
+
+	dell_xps_ec_quiesce(ec);
+	ec->sleep_pending = true;
+	ret = dell_xps_ec_suspend_cmd(ec, true);
+	if (ret) {
+		dev_err(ec->dev, "Failed to prepare EC sleep state: %d\n", ret);
+		/* The failing prepare notifier is not included in PM rollback. */
+		(void)dell_xps_ec_finish_sleep(ec);
+		return ret;
+	}
+
+	dev_info(ec->dev, "EC sleep notification complete (0xb9=1)\n");
+
+	return 0;
+}
+
+static int dell_xps_ec_pm_notify(struct notifier_block *nb,
+				 unsigned long action, void *unused)
+{
+	struct dell_xps_ec *ec = container_of(nb, struct dell_xps_ec, pm_nb);
+	int ret;
+
+	switch (action) {
+	case PM_SUSPEND_PREPARE:
+		ret = dell_xps_ec_prepare_sleep(ec);
+		if (ret)
+			return notifier_from_errno(ret);
+		ec->pm_prepared = true;
+		return NOTIFY_OK;
+	case PM_POST_SUSPEND:
+		if (!ec->pm_prepared)
+			return NOTIFY_DONE;
+		ec->pm_prepared = false;
+		/* finish_sleep reports failure and preserves the quiesced state. */
+		(void)dell_xps_ec_finish_sleep(ec);
+		return NOTIFY_OK;
+	default:
+		return NOTIFY_DONE;
+	}
+}
+
+static int dell_xps_ec_suspend(struct device *dev)
+{
+	struct dell_xps_ec *ec = dev_get_drvdata(dev);
+
+	if (ec->pm_prepared)
+		return 0;
+
+	return dell_xps_ec_prepare_sleep(ec);
+}
+
+static int dell_xps_ec_resume(struct device *dev)
+{
+	struct dell_xps_ec *ec = dev_get_drvdata(dev);
+
+	if (ec->pm_prepared)
+		return 0;
+
+	return dell_xps_ec_finish_sleep(ec);
+}
+
 static void dell_xps_ec_remove(struct i2c_client *client)
 {
-	dell_xps_ec_quiesce(i2c_get_clientdata(client));
+	struct dell_xps_ec *ec = i2c_get_clientdata(client);
+
+	unregister_pm_notifier(&ec->pm_nb);
+	dell_xps_ec_quiesce(ec);
 }
 
 static void dell_xps_ec_shutdown(struct i2c_client *client)
