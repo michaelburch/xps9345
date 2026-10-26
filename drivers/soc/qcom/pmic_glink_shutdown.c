@@ -31,10 +31,10 @@
 #define QCMB_TIMEOUT_MS		1000
 
 /* Keep the entry/exit policy fixed for the lifetime of the driver. */
-static bool suspend_disabled;
+static bool suspend_disabled = true;
 module_param(suspend_disabled, bool, 0444);
 MODULE_PARM_DESC(suspend_disabled,
-		 "Skip suspend/resume mailbox requests, retaining poweroff preparation");
+		 "Skip suspend/resume mailbox requests (default: true), retaining poweroff preparation");
 
 struct qcmb_request {
 	struct pmic_glink_hdr hdr;
@@ -410,7 +410,7 @@ static int qcmb_probe(struct auxiliary_device *adev, const struct auxiliary_devi
 		return ret;
 	dev_info(dev, "Poweroff mailbox preparation enabled (flags clear)\n");
 	if (suspend_disabled)
-		dev_info(dev, "Suspend mailbox preparation disabled by parameter; poweroff unchanged\n");
+		dev_info(dev, "Suspend mailbox preparation disabled; poweroff unchanged\n");
 	else
 		dev_info(dev, "Suspend mailbox preparation enabled (reasons 2/1, flags clear)\n");
 	return 0;
