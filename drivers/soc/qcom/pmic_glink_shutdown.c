@@ -7,6 +7,7 @@
 #include <linux/mutex.h>
 #include <linux/reboot.h>
 #include <linux/slab.h>
+#include <linux/soc/qcom/adsp_pwr_lmts.h>
 #include <linux/soc/qcom/pdr.h>
 #include <linux/soc/qcom/pmic_glink.h>
 #include <linux/spinlock.h>
@@ -28,6 +29,12 @@
 #define QCMB_REASON_AWAKE		1
 #define QCMB_REASON_SUSPEND	2
 #define QCMB_TIMEOUT_MS		1000
+
+/* Keep the entry/exit policy fixed for the lifetime of the driver. */
+static bool suspend_disabled;
+module_param(suspend_disabled, bool, 0444);
+MODULE_PARM_DESC(suspend_disabled,
+		 "Skip suspend/resume mailbox requests, retaining poweroff preparation");
 
 struct qcmb_request {
 	struct pmic_glink_hdr hdr;
@@ -298,11 +305,15 @@ static int qcmb_pm(struct notifier_block *notifier, unsigned long action, void *
 
 	if (action != PM_SUSPEND_PREPARE && action != PM_POST_SUSPEND)
 		return NOTIFY_DONE;
+	if (suspend_disabled)
+		return NOTIFY_DONE;
 	flush_work(&test->initialize_work);
 	mutex_lock(&test->lock);
 	if (action == PM_SUSPEND_PREPARE) {
 		ret = test->resume_needed ? -EBUSY :
-			qcmb_suspend_state(test, QCMB_REASON_SUSPEND);
+			qcom_adsp_pwr_lmts_check_state(true);
+		if (!ret)
+			ret = qcmb_suspend_state(test, QCMB_REASON_SUSPEND);
 		if (ret) {
 			dev_err(test->dev, "Suspend preparation failed: %d, status %#x, restore needed %u\n",
 				ret, test->status, test->resume_needed);
@@ -312,7 +323,9 @@ static int qcmb_pm(struct notifier_block *notifier, unsigned long action, void *
 			dev_info(test->dev, "Suspend mailbox preparation complete (reason 2)\n");
 		}
 	} else if (test->resume_needed) {
-		ret = qcmb_suspend_state(test, QCMB_REASON_AWAKE);
+		ret = qcom_adsp_pwr_lmts_check_state(false);
+		if (!ret)
+			ret = qcmb_suspend_state(test, QCMB_REASON_AWAKE);
 		if (ret) {
 			dev_err(test->dev, "Resume mailbox restoration failed: %d, status %#x; cold boot required\n",
 				ret, test->status);
@@ -396,7 +409,10 @@ static int qcmb_probe(struct auxiliary_device *adev, const struct auxiliary_devi
 	if (ret)
 		return ret;
 	dev_info(dev, "Poweroff mailbox preparation enabled (flags clear)\n");
-	dev_info(dev, "Suspend mailbox preparation enabled (reasons 2/1, flags clear)\n");
+	if (suspend_disabled)
+		dev_info(dev, "Suspend mailbox preparation disabled by parameter; poweroff unchanged\n");
+	else
+		dev_info(dev, "Suspend mailbox preparation enabled (reasons 2/1, flags clear)\n");
 	return 0;
 }
 
