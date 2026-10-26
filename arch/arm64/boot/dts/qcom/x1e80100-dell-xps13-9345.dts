@@ -918,6 +918,7 @@
 		reg = <0x3b>;
 
 		interrupts-extended = <&tlmm 66 IRQ_TYPE_LEVEL_LOW>;
+		wakeup-source;
 
 		pinctrl-0 = <&ec_int_n_default>;
 		pinctrl-names = "default";

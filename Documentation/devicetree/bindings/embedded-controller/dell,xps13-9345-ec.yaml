@@ -26,6 +26,8 @@ properties:
   interrupts:
     maxItems: 1
 
+  wakeup-source: true
+
   io-channels:
     description:
       ADC channels connected to the 7 onboard thermistors on PMK8550.
@@ -71,6 +73,7 @@ examples:
             compatible = "dell,xps13-9345-ec";
             reg = <0x3b>;
             interrupts-extended = <&tlmm 66 IRQ_TYPE_LEVEL_LOW>;
+            wakeup-source;
 
             io-channels = <&pmk8550_vadc ADC5_GEN3_AMUX1_GPIO_100K_PU(1)>,
                           <&pmk8550_vadc ADC5_GEN3_AMUX2_GPIO_100K_PU(1)>,
