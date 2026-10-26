@@ -142,13 +142,13 @@ config QCOM_PMIC_GLINK_SHUTDOWN
 	  Prepare the firmware power-state mailbox before suspend or poweroff.
 	  The driver loads through a PMIC GLINK auxiliary device and completes
 	  the exchange before device shutdown. Mailbox initialization runs when
-	  the service becomes available. Suspend entry and exit use paired
-	  firmware requests, including restoration after an aborted suspend.
-	  ADSP PLD preparation precedes the suspend mailbox exchange.
-	  Missing or failed PLD preparation prevents suspend; poweroff does
-	  not require a PLD endpoint. Hibernation is unchanged.
-	  The suspend_disabled module parameter skips suspend/resume mailbox
-	  requests while retaining poweroff preparation.
+	  the service becomes available. Suspend/resume mailbox requests are
+	  disabled by default; set the suspend_disabled module parameter to
+	  false to enable paired requests and restoration after an aborted
+	  suspend. In that mode, ADSP PLD preparation precedes the exchange
+	  and missing or failed PLD preparation prevents suspend.
+	  Poweroff preparation remains enabled and does not require a PLD
+	  endpoint. Hibernation is unchanged.
 	  Enable this on platforms whose firmware
 	  implements the PMIC GLINK mailbox power-state service.
 
