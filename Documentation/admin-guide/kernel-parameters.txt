@@ -5408,12 +5408,12 @@ Kernel parameters
 			Default value is set by CONFIG_DPM_WATCHDOG_ENABLED.
 
 	pmic_glink_shutdown.suspend_disabled=
-			[ARM64] Opt out of paired PMIC GLINK suspend/resume
+			[ARM64] Control bypass of paired PMIC GLINK suspend/resume
 			mailbox requests.
 			Format: <bool>
-			0 (default) enables reason 2 on suspend and reason 1
+			0 enables reason 2 on suspend and reason 1
 			on resume, including their completion/ACK sequences.
-			1 disables both sequences. Startup mailbox connection
+			1 (default) disables both sequences. Startup mailbox connection
 			and poweroff reason 5 are unchanged. EC and ADSP PLD
 			notifications, including their error handling, remain
 			active. Read-only after driver load; select at boot
