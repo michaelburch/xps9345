@@ -2570,8 +2570,9 @@ static int dwc3_suspend_common(struct dwc3 *dwc, pm_message_t msg)
 		break;
 	case DWC3_GCTL_PRTCAP_HOST:
 		if (!PMSG_IS_AUTO(msg) &&
-		    (!device_may_wakeup(dwc->dev) || dwc->needs_full_reinit)) {
+		    (!dwc3_host_system_wakeup(dwc) || dwc->needs_full_reinit)) {
 			dwc3_core_exit(dwc);
+			dwc->host_powered_down = true;
 			break;
 		}
 
@@ -2633,12 +2634,20 @@ static int dwc3_resume_common(struct dwc3 *dwc, pm_message_t msg)
 		dwc3_gadget_resume(dwc);
 		break;
 	case DWC3_GCTL_PRTCAP_HOST:
-		if (!PMSG_IS_AUTO(msg) &&
-		    (!device_may_wakeup(dwc->dev) || dwc->needs_full_reinit)) {
+		if (dwc->host_powered_down) {
 			ret = dwc3_core_init_for_resume(dwc);
 			if (ret)
 				return ret;
+			dwc->host_powered_down = false;
 			dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_HOST, true);
+			if (PMSG_IS_AUTO(msg)) {
+				dwc3_enable_susphy(dwc, dwc->susphy_state);
+				if (dwc->dis_split_quirk) {
+					reg = dwc3_readl(dwc, DWC3_GUCTL3);
+					reg |= DWC3_GUCTL3_SPLITDISABLE;
+					dwc3_writel(dwc, DWC3_GUCTL3, reg);
+				}
+			}
 			break;
 		}
 		/* Restore GUSB2PHYCFG bits that were modified in suspend */
@@ -2793,6 +2802,10 @@ int dwc3_pm_suspend(struct dwc3 *dwc)
 	struct device *dev = dwc->dev;
 	int		ret;
 
+	if (dwc->wakeup_only_connected)
+		dwc->host_system_wakeup = device_may_wakeup(dev) &&
+			dwc3_host_wakeup_enabled(dwc);
+
 	ret = dwc3_suspend_common(dwc, PMSG_SUSPEND);
 	if (ret)
 		return ret;
@@ -2829,6 +2842,9 @@ EXPORT_SYMBOL_GPL(dwc3_pm_resume);
 void dwc3_pm_complete(struct dwc3 *dwc)
 {
 	u32		reg;
+
+	if (dwc->host_powered_down)
+		return;
 
 	if (dwc->current_dr_role == DWC3_GCTL_PRTCAP_HOST &&
 			dwc->dis_split_quirk) {
