@@ -729,6 +729,11 @@ static int dwc3_qcom_probe(struct platform_device *pdev)
 
 	qcom->dwc.glue_ops = &dwc3_qcom_glue_ops;
 
+	wakeup_source = of_property_read_bool(dev->of_node, "wakeup-source");
+	qcom->dwc.wakeup_only_connected = wakeup_source &&
+		qcom->mode == USB_DR_MODE_HOST && qcom->num_ports == 1 &&
+		of_machine_is_compatible("dell,xps13-9345");
+
 	qcom->dwc.dev = dev;
 	probe_data.dwc = &qcom->dwc;
 	probe_data.res = &res;
@@ -744,11 +749,7 @@ static int dwc3_qcom_probe(struct platform_device *pdev)
 	if (ret)
 		goto remove_core;
 
-	wakeup_source = of_property_read_bool(dev->of_node, "wakeup-source");
 	device_init_wakeup(&pdev->dev, wakeup_source);
-	qcom->dwc.wakeup_only_connected = wakeup_source &&
-		qcom->mode == USB_DR_MODE_HOST && qcom->num_ports == 1 &&
-		of_machine_is_compatible("dell,xps13-9345");
 
 	qcom->is_suspended = false;
 
