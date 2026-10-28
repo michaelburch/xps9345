@@ -1160,6 +1160,7 @@
 &pcie4_port0 {
 	reset-gpios = <&tlmm 146 GPIO_ACTIVE_LOW>;
 	wake-gpios = <&tlmm 148 GPIO_ACTIVE_LOW>;
+	t-power-on-us = <70>;
 
 	wifi@0 {
 		compatible = "pci17cb,1107";
