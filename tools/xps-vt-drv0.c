@@ -4,8 +4,9 @@
  * with every step fsync'd to LOGFILE before the read it describes. If the
  * read resets the machine, the last line on disk names the address.
  *
- * Read-only, EL2 only (Gunyah does not map the table at EL1). DRV0 has never
- * been read; the ARC vote table read reset this machine, so this may too.
+ * Read-only, EL2 only (Gunyah does not map the table at EL1). Access is
+ * platform and firmware specific; reads can fault or reset an unsupported
+ * machine. Do not bypass the machine/BIOS checks or infer safety for ARC.
  *
  *   gcc -O2 -Wall -Wextra -o xps-vt-drv0 xps-vt-drv0.c
  *   sudo ./xps-vt-drv0 --canary LOGFILE # DRV2 ACV only (read safely before)

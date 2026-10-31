@@ -10,37 +10,20 @@ AI-generated/assisted work, tested on hardware and reviewed with Sashiko.
 
 ## Upstream & Base Trees
 
-Forked from [`linux-msm/laptops-kernel`](https://github.com/linux-msm/laptops-kernel)
+Originally forked from [`linux-msm/laptops-kernel`](https://github.com/linux-msm/laptops-kernel)
 (`qcom-laptops` and `qcom-laptops-v7.2`).
 
 ## Branches
 
-- **`xps/v7.2.9`** — [`qcom-laptops-v7.2`](https://github.com/michaelburch/xps9345/tree/qcom-laptops-v7.2) + discrete TPM (`qcom.tz.tpm`) EL2 and SPI bus-release patches ([diff](https://github.com/michaelburch/xps9345/compare/qcom-laptops-v7.2...xps/v7.2.9), [`.patch`](https://github.com/michaelburch/xps9345/compare/qcom-laptops-v7.2...xps/v7.2.9.patch))
-- **`xps/v7.3`** — [`qcom-laptops`](https://github.com/michaelburch/xps9345/tree/qcom-laptops) + the same 5 TPM patches ([diff](https://github.com/michaelburch/xps9345/compare/qcom-laptops...xps/v7.3), [`.patch`](https://github.com/michaelburch/xps9345/compare/qcom-laptops...xps/v7.3.patch))
+- **[xps/v7.3.0](https://github.com/michaelburch/xps9345/tree/xps/v7.3.0)** - upstream Linux v7.3 with Qualcomm laptop support and XPS-specific patches.
+- **`main`** - documentation and userspace tools.
 
-### Commits in the TPM series
-
-Clears the TrustZone DRV0 `QUP1` + 76.8 MB/s DDR vote held by the discrete TPM's
-SPI11 bus, which otherwise blocks DDR LPM and `cxsd`/`aosd` collapse on the
-XPS 13 9345:
-
-1. `firmware: qcom: scm: Supply the HLOS client ID for QSEE calls at EL2`
-2. `firmware: qcom: scm: add TPM backend type query` *(Xilin Wu)*
-3. `firmware: qcom: qseecom: register qcom.tz.tpm application` *(Xilin Wu)*
-4. `tpm: add Qualcomm QSEE TPM transport driver` *(Xilin Wu)*
-5. `tpm: qcom_qsee: Support discrete TPMs and release their SPI bus when idle`
-
-### Required Kconfig
-
-```ini
-CONFIG_QCOM_TZMEM_MODE_SHMBRIDGE=y
-# CONFIG_QCOM_TZMEM_MODE_GENERIC is not set
-CONFIG_TCG_QCOM_TPM_QSEE=m
-```
+Kernel version branches are rolling and may be force-updated.
 
 ## Tools
 
 [`tools/`](tools/) on `main` holds userspace scripts and utilities for measuring
-`qcom_stats` sleep residency (`xps-rpmh-stats.sh`) and reading the AOSS BCM
-vote table at EL2 (`xps-vt-drv0.c`). See [`tools/README.md`](tools/README.md).
+`qcom_stats` sleep residency (`xps-rpmh-stats.sh`, standalone), taking PM
+snapshots, and reading the AOSS BCM vote table at EL2 (`xps-vt-drv0.c`).
+See [`tools/README.md`](tools/README.md).
 
