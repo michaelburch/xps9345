@@ -457,10 +457,12 @@
 
 	thermal-zones {
 		sys-therm1-thermal {
+			status = "disabled";
 			thermal-sensors = <&pmk8550_vadc ADC5_GEN3_AMUX1_GPIO_100K_PU(1)>;
 		};
 
 		sys-therm2-thermal {
+			status = "disabled";
 			critical-action = "shutdown";
 			polling-delay-passive = <1000>;
 
@@ -501,6 +503,7 @@
 		};
 
 		sys-therm3-thermal {
+			status = "disabled";
 			critical-action = "shutdown";
 			polling-delay-passive = <1000>;
 
@@ -542,6 +545,7 @@
 
 		/* Warms with a charger on the right USB-C port */
 		sys-therm4-thermal {
+			status = "disabled";
 			critical-action = "shutdown";
 			polling-delay-passive = <1000>;
 
@@ -582,14 +586,17 @@
 		};
 
 		sys-therm5-thermal {
+			status = "disabled";
 			thermal-sensors = <&pmk8550_vadc ADC5_GEN3_AMUX3_THM_100K_PU(1)>;
 		};
 
 		sys-therm6-thermal {
+			status = "disabled";
 			thermal-sensors = <&pmk8550_vadc ADC5_GEN3_AMUX4_THM_100K_PU(1)>;
 		};
 
 		sys-therm7-thermal {
+			status = "disabled";
 			thermal-sensors = <&pmk8550_vadc ADC5_GEN3_AMUX5_THM_100K_PU(1)>;
 		};
 	};
@@ -1031,6 +1038,18 @@
 	csiphy4_out_ep: endpoint {
 		remote-endpoint = <&camss_csiphy4_inep>;
 	};
+};
+
+&cluster_pd0 {
+	domain-idle-states = <&cluster_cl4>, <&cluster_cl5>;
+};
+
+&cluster_pd1 {
+	domain-idle-states = <&cluster_cl4>, <&cluster_cl5>;
+};
+
+&cluster_pd2 {
+	domain-idle-states = <&cluster_cl4>, <&cluster_cl5>;
 };
 
 &gpu {
