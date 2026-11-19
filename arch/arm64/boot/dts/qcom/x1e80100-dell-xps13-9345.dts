@@ -457,6 +457,7 @@
 
 	thermal-zones {
 		thm1-thermal {
+			status = "disabled";
 			critical-action = "shutdown";
 			polling-delay-passive = <1000>;
 
@@ -497,6 +498,7 @@
 		};
 
 		chg-right-thermal {
+			status = "disabled";
 			critical-action = "shutdown";
 			polling-delay-passive = <1000>;
 
@@ -537,22 +539,27 @@
 		};
 
 		ssd-thermal {
+			status = "disabled";
 			thermal-sensors = <&pmk8550_vadc ADC5_GEN3_AMUX3_THM_100K_PU(1)>;
 		};
 
 		thm4-thermal {
+			status = "disabled";
 			thermal-sensors = <&pmk8550_vadc ADC5_GEN3_AMUX4_THM_100K_PU(1)>;
 		};
 
 		thm5-thermal {
+			status = "disabled";
 			thermal-sensors = <&pmk8550_vadc ADC5_GEN3_AMUX5_THM_100K_PU(1)>;
 		};
 
 		gpio-thm1-thermal {
+			status = "disabled";
 			thermal-sensors = <&pmk8550_vadc ADC5_GEN3_AMUX1_GPIO_100K_PU(1)>;
 		};
 
 		chg-left-thermal {
+			status = "disabled";
 			critical-action = "shutdown";
 			polling-delay-passive = <1000>;
 
@@ -1030,6 +1037,18 @@
 	csiphy4_out_ep: endpoint {
 		remote-endpoint = <&camss_csiphy4_inep>;
 	};
+};
+
+&cluster_pd0 {
+	domain-idle-states = <&cluster_cl4>, <&cluster_cl5>;
+};
+
+&cluster_pd1 {
+	domain-idle-states = <&cluster_cl4>, <&cluster_cl5>;
+};
+
+&cluster_pd2 {
+	domain-idle-states = <&cluster_cl4>, <&cluster_cl5>;
 };
 
 &gpu {
