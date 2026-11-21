@@ -1061,6 +1061,7 @@ struct scmi_perf_limits_report {
 	unsigned int	range_min;
 	unsigned long	range_max_freq;
 	unsigned long	range_min_freq;
+	bool		frequencies_valid;
 };
 
 struct scmi_perf_level_report {

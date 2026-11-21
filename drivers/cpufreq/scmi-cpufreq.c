@@ -186,6 +186,9 @@ static int scmi_limit_notify_cb(struct notifier_block *nb, unsigned long event, 
 	unsigned int limit_freq_khz;
 	int ret;
 
+	if (!limit_notify->frequencies_valid)
+		return NOTIFY_DONE;
+
 	limit_freq_khz = limit_notify->range_max_freq / HZ_PER_KHZ;
 
 	ret = freq_qos_update_request(&priv->limits_freq_req, limit_freq_khz);

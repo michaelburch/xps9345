@@ -400,18 +400,33 @@ process_response_opp_v4(struct device *dev, struct perf_dom_info *dom,
 	opp->trans_latency_us =
 		le16_to_cpu(r->opp[loop_idx].transition_latency_us);
 
+	/* Note that PERF v4 reports always five 32-bit words */
+	opp->indicative_freq = le32_to_cpu(r->opp[loop_idx].indicative_freq);
+	if (dom->level_indexing_mode)
+		opp->level_index = le32_to_cpu(r->opp[loop_idx].level_index);
+
 	ret = xa_insert(&dom->opps_by_lvl, opp->perf, opp, GFP_KERNEL);
+	if (ret == -EBUSY && dom->level_indexing_mode) {
+		struct scmi_opp *alias;
+
+		alias = devm_kmemdup(dev, opp, sizeof(*alias), GFP_KERNEL);
+		if (!alias)
+			return -ENOMEM;
+
+		ret = xa_insert(&dom->opps_by_idx, alias->level_index, alias,
+				GFP_KERNEL);
+		if (ret)
+			devm_kfree(dev, alias);
+
+		return ret ?: -EBUSY;
+	}
 	if (ret) {
 		dev_info(dev, FW_BUG "Failed to add opps_by_lvl at %d for %s - ret:%d\n",
 			 opp->perf, dom->info.name, ret);
 		return ret;
 	}
 
-	/* Note that PERF v4 reports always five 32-bit words */
-	opp->indicative_freq = le32_to_cpu(r->opp[loop_idx].indicative_freq);
 	if (dom->level_indexing_mode) {
-		opp->level_index = le32_to_cpu(r->opp[loop_idx].level_index);
-
 		ret = xa_insert(&dom->opps_by_idx, opp->level_index, opp,
 				GFP_KERNEL);
 		if (ret) {
@@ -1173,6 +1188,9 @@ static void *scmi_perf_fill_custom_report(const struct scmi_protocol_handle *ph,
 		*src_id = r->domain_id;
 		rep = r;
 
+		r->frequencies_valid = false;
+		r->range_max_freq = 0;
+		r->range_min_freq = 0;
 		ret = scmi_perf_xlate_opp_to_freq(dom, r->range_max, &freq_max);
 		if (ret)
 			break;
@@ -1184,6 +1202,7 @@ static void *scmi_perf_fill_custom_report(const struct scmi_protocol_handle *ph,
 		/* Report translated freqs ONLY if both available */
 		r->range_max_freq = freq_max;
 		r->range_min_freq = freq_min;
+		r->frequencies_valid = true;
 
 		break;
 	}
