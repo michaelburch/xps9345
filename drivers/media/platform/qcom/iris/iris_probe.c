@@ -265,6 +265,9 @@ static void iris_unreserve_iova_region(struct device *dev, struct dma_iova_state
 {
 	unsigned int i;
 
+	if (!iova_state)
+		return;
+
 	if (!device_iommu_mapped(dev))
 		return;
 
@@ -537,14 +540,17 @@ static int iris_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_put_core;
 
-	ret = iris_reserve_iova_region(dev, &core->iova_state, IRIS_NP_RESERVE_IOVA_START,
-				       IRIS_NP_RESERVE_IOVA_SIZE);
-	if (ret)
-		goto err_put_core;
-
 	ret = iris_init_cb_devs(core);
 	if (ret)
 		goto err_put_core;
+
+	if (!core->np_dev) {
+		ret = iris_reserve_iova_region(dev, &core->iova_state,
+					       IRIS_NP_RESERVE_IOVA_START,
+					       IRIS_NP_RESERVE_IOVA_SIZE);
+		if (ret)
+			goto err_put_core;
+	}
 
 	ret = v4l2_device_register(dev, &core->v4l2_dev);
 	if (ret)
