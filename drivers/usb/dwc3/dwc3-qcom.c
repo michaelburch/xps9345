@@ -524,9 +524,25 @@ static void dwc3_qcom_select_utmi_clk(struct dwc3_qcom *qcom)
 			  PIPE_UTMI_CLK_DIS);
 }
 
+static bool dwc3_qcom_hs_phys_in_l2(struct dwc3_qcom *qcom)
+{
+	bool in_l2 = true;
+	u32 val;
+	int index;
+
+	for (index = 0; index < qcom->num_ports; index++) {
+		val = readl(qcom->qscratch_base + pwr_evnt_irq_stat_reg[index]);
+		if (!(val & PWR_EVNT_LPM_IN_L2_MASK)) {
+			dev_err(qcom->dev, "port-%d HS-PHY not in L2\n", index + 1);
+			in_l2 = false;
+		}
+	}
+
+	return in_l2;
+}
+
 static int dwc3_qcom_suspend(struct dwc3_qcom *qcom, pm_message_t msg)
 {
-	u32 val;
 	int i, ret;
 	bool wakeup;
 
@@ -552,21 +568,15 @@ static int dwc3_qcom_suspend(struct dwc3_qcom *qcom, pm_message_t msg)
 	if (PMSG_IS_AUTO(msg))
 		wakeup = true;
 	else
-		wakeup = device_may_wakeup(qcom->dev);
+		wakeup = dwc3_host_system_wakeup(&qcom->dwc);
 
 	/*
 	 * Only a host with wakeup enabled keeps the HS PHY powered and parks
 	 * it in L2 across suspend. A peripheral disconnects from the bus and
 	 * powers the PHY off first, so its link never enters L2.
 	 */
-	if (dwc3_qcom_is_host(qcom) && wakeup) {
-		for (i = 0; i < qcom->num_ports; i++) {
-			val = readl(qcom->qscratch_base + pwr_evnt_irq_stat_reg[i]);
-			if (!(val & PWR_EVNT_LPM_IN_L2_MASK))
-				dev_err(qcom->dev, "port-%d HS-PHY not in L2\n",
-					i + 1);
-		}
-	}
+	if (dwc3_qcom_is_host(qcom) && wakeup)
+		dwc3_qcom_hs_phys_in_l2(qcom);
 
 	if (!qcom->fw_managed) {
 		clk_bulk_disable_unprepare(qcom->num_clocks, qcom->clks);
@@ -976,7 +986,7 @@ static int dwc3_qcom_probe(struct platform_device *pdev)
 
 	phy = devm_of_phy_get_by_index(dev, dev->of_node, 0);
 	if (IS_ERR(phy)) {
-		if (PTR_ERR(phy) != -ENODEV) {
+		if (PTR_ERR(phy) != -ENODEV && PTR_ERR(phy) != -ENOSYS) {
 			ret = dev_err_probe(dev, PTR_ERR(phy),
 					    "failed to get usb2 phy\n");
 			goto clk_disable;
@@ -1019,6 +1029,12 @@ static int dwc3_qcom_probe(struct platform_device *pdev)
 	if (glymur)
 		probe_data.properties.xhci_reset_on_resume = true;
 
+	wakeup_source = !glymur &&
+			of_property_read_bool(dev->of_node, "wakeup-source");
+	qcom->dwc.wakeup_only_connected = wakeup_source &&
+		qcom->mode == USB_DR_MODE_HOST && qcom->num_ports == 1 &&
+		of_machine_is_compatible("dell,xps13-9345");
+
 	ret = dwc3_core_probe(&probe_data);
 	if (ret)  {
 		ret = dev_err_probe(dev, ret, "failed to register DWC3 Core\n");
@@ -1032,8 +1048,6 @@ static int dwc3_qcom_probe(struct platform_device *pdev)
 	}
 
 	/* A controller that loses power in s2idle cannot wake the system. */
-	wakeup_source = !glymur &&
-			of_property_read_bool(dev->of_node, "wakeup-source");
 	device_init_wakeup(&pdev->dev, wakeup_source);
 
 	qcom->is_suspended = false;
@@ -1120,14 +1134,28 @@ static int dwc3_qcom_pm_resume(struct device *dev)
 static void dwc3_qcom_complete(struct device *dev)
 {
 	struct dwc3 *dwc = dev_get_drvdata(dev);
+	struct dwc3_qcom *qcom = to_dwc3_qcom(dwc);
 
-	dwc3_pm_complete(dwc);
+	if (!qcom->is_suspended)
+		dwc3_pm_complete(dwc);
 }
 
 static int dwc3_qcom_prepare(struct device *dev)
 {
 	struct dwc3 *dwc = dev_get_drvdata(dev);
 	struct dwc3_qcom *qcom = to_dwc3_qcom(dwc);
+	int ret;
+
+	if (dwc->wakeup_only_connected) {
+		ret = pm_runtime_resume(dev);
+		if (ret < 0 && pm_runtime_suspended(dev))
+			ret = dwc3_qcom_pm_resume(dev);
+		if (ret < 0) {
+			dev_err(dev, "failed to resume for system sleep: %d\n", ret);
+			return ret;
+		}
+		return 0;
+	}
 
 	/*
 	 * The controller loses power across system suspend, so the system
@@ -1149,6 +1177,14 @@ static int dwc3_qcom_runtime_suspend(struct device *dev)
 	ret = dwc3_runtime_suspend(&qcom->dwc);
 	if (ret)
 		return ret;
+
+	if (dwc3_qcom_is_host(qcom) && !dwc3_qcom_hs_phys_in_l2(qcom)) {
+		ret = dwc3_runtime_resume(&qcom->dwc);
+		if (ret < 0)
+			return ret;
+		pm_runtime_mark_last_busy(dev);
+		return -EBUSY;
+	}
 
 	return dwc3_qcom_suspend(qcom, PMSG_AUTO_SUSPEND);
 }
